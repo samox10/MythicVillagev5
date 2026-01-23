@@ -602,11 +602,6 @@ const corTier = (t) => ({'F':'#8A8A8A','E':'#659665','D':'#71c404','C':'#475fad'
 @import '../css/taverna.css';
 @import '../css/importantes.css';
 
-/* Container Geral */
-.ferraria-container {
-    padding: 10px; color: #2c3e50; max-width: 1000px; margin: 0 auto;
-}
-
 /* --- PAINEL DE CONTROLE (Topo) --- */
 .painel-controle-ferraria {
     display: flex; align-items: center; justify-content: space-between;
@@ -614,41 +609,8 @@ const corTier = (t) => ({'F':'#8A8A8A','E':'#659665','D':'#71c404','C':'#475fad'
     margin: 15px 0; padding: 10px; gap: 15px; height: 180px;
     box-shadow: 0 2px 4px rgba(0,0,0,0.05);
 }
-.lado-esquerdo-ferreiro { flex: 1; display: flex; justify-content: center; height: 100%; }
 .ferreiro-ativo .card-mid { flex: 1; display: flex; align-items: center; padding: 5px 5px 5px 15px; background: #fff; }
-.vazio-ferreiro-mini { border: 2px dashed #999; width: 100%; display: flex; align-items: center; justify-content: center; color: #777; font-weight: bold; }
 .linha-divisoria { width: 2px; height: 70%; background: #bdc3c7; opacity: 0.6; }
-.grupo-select {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 10px;
-    
-    background: #fff;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    
-    height: 30px;
-    padding: 0 5px;
-    
-    /* AQUI: Define o tamanho da caixa branca */
-    width: 280px; /* <--- Tamanho fixo (recomendado para ficar igual a imagem) */
-    /* ou use width: 85%; se quiser responsivo */
-}
-
-/* O PRÓPRIO SELETOR (Dropdown) */
-.grupo-select select {
-    border:#2f3542;      /* Remove a borda padrão feia */
-    border-width: 1px;
-    background: transparent; /* Fundo transparente para usar o da caixa */
-    text-align: right;
-    padding-right: 8px;
-    height: 100%;      /* Ocupa toda a altura da caixa pai */
-    outline: none;     /* Remove a linha azul ao clicar */
-    font-size: 0.9em;  /* Tamanho da letra */
-    cursor: pointer;
-}
-
 /* Lista Container */
 .lista-receitas-container {
     background: #ecf0f1; border: 1px solid #bdc3c7; border-radius: 8px;
@@ -667,114 +629,6 @@ const corTier = (t) => ({'F':'#8A8A8A','E':'#659665','D':'#71c404','C':'#475fad'
     gap: 15px; /* Espaço entre os itens (lado e baixo) */
     align-content: start; /* Garante que os itens fiquem no topo */
 }
-
-
-/* ==================================================
-   1. ESTILO DO CARD SIMPLIFICADO (Na Lista)
-   ================================================== */
-.card-capa-simples {
-    background: #fff;
-    border: 1px solid #bdc3c7; 
-    border-radius: 8px;
-    padding: 10px;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-    display: flex; 
-    flex-direction: column; 
-    gap: 10px;
-    /* margin-bottom: 15px;  <-- REMOVIDO para não duplicar espaço */
-    height: fit-content; /* Garante que o card tenha o tamanho do conteúdo */
-}
-
-.capa-header {
-    display: flex; 
-    justify-content: space-between; /* Empurra um p/ cada ponta */
-    align-items: center;
-    border-bottom: 1px solid #ecf0f1; 
-    padding-bottom: 5px;
-    gap: 10px; /* Cria um espaço mínimo de respiro entre o nome e o nível */
-}
-.capa-header h4 { 
-    margin: 0; 
-    color: #2c3e50; 
-    text-transform: uppercase; 
-    font-weight: 800;
-    
-    /* --- NOVAS LINHAS --- */
-    text-align: left; /* Garante que o texto comece na esquerda */
-    flex: 1;          /* Ocupa TODO o espaço livre no meio */
-    white-space: nowrap; /* (Opcional) Impede que o nome quebre em duas linhas */
-    overflow: hidden;    /* (Opcional) Se o nome for gigante, corta o final */
-    text-overflow: ellipsis; /* (Opcional) Põe "..." se cortar o nome */
-}
-
-.capa-corpo {
-    display: flex; align-items: center; gap: 15px;
-}
-.capa-img-box {
-    width: 80px; 
-    height: 80px; 
-    background: #f8f9fa; 
-    border: 1px solid #dee2e6;
-    border-radius: 8px; 
-    padding: 0; /* REMOVIDO padding para a imagem encostar nas bordas se quiser, ou mantenha se preferir */
-    flex-shrink: 0;
-    
-    /* IMPORTANTE: Necessário para a faixinha ficar presa aqui dentro */
-    position: relative; 
-    overflow: hidden; /* Garante que a faixa não saia pelas bordas arredondadas */
-    
-    /* Centraliza a imagem caso tenha removido o padding */
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-.capa-icon { 
-    width: 80%; /* Um pouco menor para não colar nas bordas, já que tiramos o padding do pai */
-    height: 80%; 
-    object-fit: contain; 
-}
-.qtd-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    
-    background: rgba(0, 0, 0, 0.6); /* Fundo preto transparente */
-    color: #fff;
-    font-size: 0.7em;
-    font-weight: bold;
-    text-align: center;
-    padding: 2px 0;
-    line-height: 1;
-    z-index: 2;
-    backdrop-filter: blur(2px); /* Efeito de vidro opcional */
-}
-
-/* AJUSTE AQUI: Mudado para 2 colunas para caber o nome do status */
-.capa-stats {
-    flex: 1; display: grid; grid-template-columns: repeat(2, 1fr); gap: 5px;
-}
-.mini-stat-row {
-    display: flex; align-items: center; gap: 4px; background: #fdfdfd;
-    border: 1px solid #ecf0f1; padding: 3px 6px; border-radius: 6px;
-    font-size: 0.80em; color: #555;
-    white-space: nowrap; /* Não quebrar linha */
-}
-.mini-stat-row img { width: 14px; height: 14px; opacity: 0.8; }
-.nome-stat-lista { color: #7f8c8d; font-weight: 600; font-size: 0.9em; margin-right: 2px; }
-.valor-stat-lista { color: #2c3e50; font-weight: 700; }
-
-.desc-simples { font-size: 0.8em; color: #7f8c8d; font-style: italic; }
-
-.btn-abrir-modal {
-    width: 100%; padding: 10px;
-    background: #3498db; color: white; border: none; border-radius: 6px;
-    font-weight: bold; cursor: pointer; text-transform: uppercase; letter-spacing: 1px;
-    transition: background 0.2s;
-}
-.btn-abrir-modal:hover { background: #2980b9; }
-
-
 /* ==================================================
    2. ESTILO DO MODAL (Janela Flutuante)
    ================================================== */
@@ -865,9 +719,16 @@ const corTier = (t) => ({'F':'#8A8A8A','E':'#659665','D':'#71c404','C':'#475fad'
     display: flex; justify-content: center; background: #ecf0f1;
     border-radius: 8px; padding: 15px; border: 1px solid #bdc3c7;
     margin-bottom: 10px;
+    background: linear-gradient(rgba(0,0,0,0.2), rgba(0,0,0,0.2)), url('/assets/ui/bg_ferraria_dark_long.png') !important;
+
+    background-size: 100% 100% !important;
+
+    background-position: center !important;
+
+    background-repeat: no-repeat !important;
 }
 .modal-badge-tipo {
-    position: absolute; top: 5px; right: 5px;
+    position: absolute; top: 5px; right: 18px; top: 10px;
     background: rgba(0,0,0,0.1); font-size: 0.7em; padding: 2px 6px; border-radius: 4px;
     color: #7f8c8d; text-transform: uppercase; font-weight: bold;
 }
@@ -893,7 +754,6 @@ const corTier = (t) => ({'F':'#8A8A8A','E':'#659665','D':'#71c404','C':'#475fad'
 .modal-desc-text {
     font-style: italic; color: #7f8c8d; text-align: center; padding: 10px; font-size: 0.9em;
 }
-.text-red { color: #e74c3c; }
 .modal-icon-big { width: 80px; height: 80px; object-fit: contain; }
 
 .modal-recursos-box {
@@ -976,19 +836,7 @@ const corTier = (t) => ({'F':'#8A8A8A','E':'#659665','D':'#71c404','C':'#475fad'
         grid-template-columns: 1fr; /* No celular, volta para 1 coluna */
     }
 }
-
-/* Classes legadas */
-.stats-ferreiro { flex: 1; }
-.fila-producao { margin-top: 20px; background: #fff; padding: 10px; border: 1px solid #ccc; border-radius: 8px; }
-.barra-progresso-container { height: 20px; background: #eee; border-radius: 10px; position: relative; overflow: hidden; margin: 10px 0; }
-.barra-progresso-fill { height: 100%; background: orange; transition: width 1s linear; }
-.texto-progresso { position: absolute; width: 100%; text-align: center; font-size: 0.8em; font-weight: bold; top: 2px; }
 /* --- ESTILO ATUALIZADO DO CARD DE FUNCIONÁRIO --- */
-
-
-.topo-detalhe-nome {
-    display: flex; align-items: center; gap: 6px;
-}
 .icon-prof-topo {
     width: 20px; height: 20px;
     filter: drop-shadow(0 1px 2px rgba(0,0,0,0.3));
@@ -996,17 +844,6 @@ const corTier = (t) => ({'F':'#8A8A8A','E':'#659665','D':'#71c404','C':'#475fad'
 
 /* Efeito Zebrado (Opcional, deixa mais legível) */
 .linha-dado:nth-child(odd) { background-color: #ffffff; }
-/* Frase Rodapé */
-.frase-rodape {
-    margin-top: auto; /* Empurra para o fundo */
-    padding: 4px;
-    text-align: center;
-    font-style: italic;
-    color: #a4b0be;
-    font-size: 0.85em;
-    border-top: 1px solid #f1f2f6;
-    background: #fff;
-}
 /* Container Principal do Card */
 .ferreiro-ativo {
     width: 100%;
@@ -1228,150 +1065,6 @@ const corTier = (t) => ({'F':'#8A8A8A','E':'#659665','D':'#71c404','C':'#475fad'
     cursor: pointer;
     font-size: 0.80em;
 }
-/* --- FILA DE PRODUÇÃO COMPACTA --- */
-.fila-producao-compacta {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 15px;
-    
-    background: #fff;
-    border: 1px solid #e0e0e0;
-    border-left: 5px solid #e67e22; /* Detalhe Laranja "Fogo" */
-    border-radius: 6px;
-    
-    padding: 8px 15px;
-    margin-bottom: 10px; /* Separa da lista abaixo */
-    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-    height: 50px; /* Altura fixa pequena */
-}
-
-/* Lado Esquerdo: Ícone e Texto */
-.lado-info {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    min-width: 160px; /* Garante espaço para o texto não pular */
-}
-
-.icone-fogo {
-    font-size: 1.4em;
-    animation: pulsoFogo 1.5s infinite;
-}
-
-.texto-info {
-    display: flex;
-    flex-direction: column;
-    line-height: 1.1;
-}
-
-.titulo-fila {
-    font-size: 0.85em;
-    color: #2c3e50;
-}
-
-.tempo-fila {
-    font-size: 0.75em;
-    font-weight: bold;
-    color: #e67e22;
-}
-
-/* Meio: Barra de Progresso (Estica para ocupar o espaço) */
-.lado-barra {
-    flex: 1; /* Ocupa todo o espaço sobrando no meio */
-    display: flex;
-    align-items: center;
-}
-
-.barra-fundo-compacta {
-    width: 100%;
-    height: 8px; /* Barra bem fininha */
-    background: #ecf0f1;
-    border-radius: 4px;
-    overflow: hidden;
-}
-
-.barra-fill-compacta {
-    height: 100%;
-    background: linear-gradient(90deg, #f39c12, #d35400);
-    border-radius: 4px;
-    transition: width 1s linear;
-}
-
-/* Lado Direito: Botões Pequenos */
-.lado-botoes {
-    display: flex;
-    gap: 8px;
-}
-
-.btn-mini-acao {
-    width: 30px;
-    height: 30px;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    font-weight: bold;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: transform 0.1s;
-}
-
-.btn-mini-acao:hover { transform: scale(1.1); }
-
-.btn-mini-acao.cancelar { background: #ffebee; color: #c0392b; border: 1px solid #ffcdd2; }
-.btn-mini-acao.acelerar { background: #fff8e1; color: #f39c12; border: 1px solid #ffe0b2; }
-
-@keyframes pulsoFogo {
-    0% { transform: scale(1); opacity: 1; }
-    50% { transform: scale(1.1); opacity: 0.8; }
-    100% { transform: scale(1); opacity: 1; }
-}
-
-/* Ajuste Mobile para não quebrar */
-@media(max-width: 600px) {
-    .fila-producao-compacta {
-        flex-wrap: wrap; /* Permite quebrar linha se precisar */
-        height: auto;    /* Altura automática */
-        padding: 10px;
-    }
-    .lado-barra {
-        order: 3; /* Joga a barra para a linha de baixo */
-        min-width: 100%;
-        margin-top: 5px;
-    }
-}
-.badge-nivel-lista {
-    /* --- ESTRUTURA --- */
-    min-width: 50px;
-    text-align: center;
-    flex-shrink: 0;
-    
-    /* Mantém a linha divisória que criamos antes */
-    border-left: 1px solid #ecf0f1; 
-    padding-left: 8px;
-    
-    /* --- VISUAL DA CAIXA --- */
-    color: #2b3e4f;             /* Laranja Queimado (Cor de Nível) */
-    background-color: #ecf0f1;  /* Fundo Laranja BEM clarinho */
-    
-    font-size: 0.75em;
-    font-weight: bold;
-    text-transform: uppercase;
-    
-    border-radius: 12px;        /* Bem redondo (formato pílula) */
-    padding: 4px 8px;           /* Espaçamento interno */
-}
-/* Adicione no final do <style scoped> */
-.sem-recursos {
-    opacity: 0.5;
-    filter: grayscale(100%);
-    transition: all 0.3s;
-}
-.sem-recursos:hover {
-    opacity: 1; /* Volta a cor se passar o mouse, para ver melhor */
-    filter: none;
-}
 .btn-max {
     font-size: 0.7em !important; /* Letra menor */
     background: #b80000df !important; /* Laranja */
@@ -1588,10 +1281,6 @@ const corTier = (t) => ({'F':'#8A8A8A','E':'#659665','D':'#71c404','C':'#475fad'
     from { opacity: 0; transform: translate(-50%, 10px); }
     to { opacity: 1; transform: translate(-50%, 0); }
 }
-/* =========================================================
-   AJUSTES PARA CELULAR (Mobile)
-   Isso só é ativado se a tela for menor que 600px
-   ========================================================= */
 /* Botão de Fechar (X) - Invisível no PC, Visível no Mobile */
 .btn-fechar-absoluto {
     display: none; /* Escondido por padrão */
@@ -1681,10 +1370,7 @@ const corTier = (t) => ({'F':'#8A8A8A','E':'#659665','D':'#71c404','C':'#475fad'
     /* Aumenta letra do título */
     .tooltip-header { font-size: 1.3rem; margin-bottom: 15px; text-align: center; }
 }
-/* --- CSS NOVO PARA A REFORMULAÇÃO DA FERRARIA --- */
-
 /* --- ESTILO V7: GRID 3 COLUNAS (COMPACTO) --- */
-
 /* Ajuste do Container da Lista */
 .lista-receitas-scroll {
     display: flex !important;
@@ -1733,8 +1419,8 @@ const corTier = (t) => ({'F':'#8A8A8A','E':'#659665','D':'#71c404','C':'#475fad'
     /* Adicionei um leve escurecimento (rgba) por cima da imagem para garantir leitura */
     background: linear-gradient(rgba(0,0,0,0.2), rgba(0,0,0,0.2)), url('/assets/ui/bg_ferraria_dark.png') !important;
     background-size: 100% 100% !important;
-background-position: center !important;
-background-repeat: no-repeat !important;
+    background-position: center !important;
+    background-repeat: no-repeat !important;
     
     /* Fallback (cor de segurança se a imagem falhar) */
     background-color: #2d3436; 
@@ -1815,20 +1501,6 @@ background-repeat: no-repeat !important;
     border-radius: 12px;
 }
 
-/* GRID DE STATS (A MUDANÇA PRINCIPAL AQUI) */
-.grid-stats-light {
-    display: grid;
-    /* AGORA SÃO 3 COLUNAS IGUAIS */
-    grid-template-columns: repeat(3, 1fr); 
-    gap: 0px 10px; /* Gap lateral menor */
-    overflow-y: auto;
-    padding-right: 2px; 
-}
-.grid-stats-light::-webkit-scrollbar { width: 4px; }
-.grid-stats-light::-webkit-scrollbar-thumb { background: #ccc; border-radius: 2px; }
-
-/* Remove a borda dos últimos 3 itens (para ficar limpo no final) */
-.linha-stat-light:nth-last-child(-n+3) { border-bottom: none; }
 
 
 .desc-light {
@@ -1909,7 +1581,8 @@ background-repeat: no-repeat !important;
     /* ALTURA FIXA: Crucial para o alinhamento 1-2-7 funcionar */
     height: 25px; 
     
-    border-bottom: 1px solid rgba(0,0,0,0.05);
+    /* MUDANÇA AQUI: "dashed" para tracejado e "0.15" para ficar mais visível */
+    border-bottom: 1px dashed rgba(0,0,0,0.15); 
     white-space: nowrap;
 }
 
@@ -1942,12 +1615,16 @@ background-repeat: no-repeat !important;
         box-shadow: 0 4px 8px rgba(0,0,0,0.15); 
     }
 
-    .box-img-light { width: 100%; height: 100px; border-right: none; border-bottom: 1px solid #b2bec3; }
+    .box-img-light { width: 100%; height: 100px; border-right: none; border-bottom: 1px solid #b2bec3; 
+    
+    /* Adicionei um leve escurecimento (rgba) por cima da imagem para garantir leitura */
+    background: linear-gradient(rgba(0,0,0,0.2), rgba(0,0,0,0.2)), url('/assets/ui/bg_ferraria_dark_long.png') !important;
+    background-size: 100% 100% !important;
+    background-position: center !important; 
+    background-repeat: no-repeat !important;
+}
     
     .miolo-light { min-height: 100px; }
-
-    /* No celular, volta para 2 colunas para não ficar ilegível */
-    .grid-stats-light { grid-template-columns: 1fr 1fr; }
 
     .coluna-botao-light { 
         width: 100%; height: 55px; border-left: none; border-top: 1px solid #b2bec3;
