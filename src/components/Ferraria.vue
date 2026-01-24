@@ -59,7 +59,8 @@ const mapaAtributos = {
     danoCritico: { nome: "Danos Crít.", img: "icone_danocritico.png" },
     magia: { nome: "Magia", img: "icone_danomagico.png" },
     defesaMagica: { nome: "Def. Mágica", img: "icone_defesamagica.png" },
-    penetracao: { nome: "Penetração", img: "icone_penetracao.png" }
+    penetracao: { nome: "Penetração", img: "icone_penetracao.png" },
+    mana: { nome: "Mana", img: "icone_mana.png"}
 };
 // --- CONTROLE DO TOOLTIP ---
 const tooltipData = reactive({
@@ -264,7 +265,12 @@ const corTier = (t) => ({'F':'#8A8A8A','E':'#659665','D':'#71c404','C':'#475fad'
             <span class="badge-nivel">Nível {{ jogo.ferraria }}</span>
         </div>
     </div>
-
+    <div class="abas-taverna">
+    <button :class="{ ativo: abaAtual === 'fabricacao' }" @click="abaAtual = 'fabricacao'">FABRICAÇÃO</button>
+    
+    <button :class="{ ativo: abaAtual === 'aprimoramento' }" @click="abaAtual = 'aprimoramento'">APRIMORAMENTO</button>
+    </div>
+    <div v-if="abaAtual === 'fabricacao'">
     <div class="painel-controle-ferraria">
         
         <div v-if="ferreiroAtivo" class="card-funcionario ferreiro-ativo" :style="{ borderColor: corTier(ferreiroAtivo.tier) }">
@@ -594,7 +600,7 @@ const corTier = (t) => ({'F':'#8A8A8A','E':'#659665','D':'#71c404','C':'#475fad'
         title="Voltar ao Topo">
     ▲
 </button>
-
+</div>
 </div> 
 </template>
 
