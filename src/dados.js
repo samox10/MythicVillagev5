@@ -19,17 +19,20 @@ export const tabelaItens = [
   
   { 
     id: 'espada_cobre', nome: 'Espada de Cobre', 
-    img: '/assets/craft/espada_cobre.png', 
+    img: '/assets/craft/espada_cobre.png',
+    categoria: 'aventureiro', 
     tipo: 'arma',
     custo: { madeira: 10, cobre: 5, obsidiana: 1 }, 
     tempo: 10, 
     reqNivel: 1,
     nivelItem: 5,
     stats: { ataque: 8, critico: 2, danoCritico: 50, penetracao: 2, magia: 1
-     } 
+     }     
   },
   { 
-    id: 'espada_ferro', nome: 'Espada da Ruína Celestial', tipo: 'arma', 
+    id: 'espada_ferro', nome: 'Espada da Ruína Celestial', 
+    categoria: 'heroi',
+    tipo: 'arma', 
     img: '/assets/craft/espada_ferro.png', 
     custo: { madeira: 20, ferro: 10 }, tempo: 30, 
     reqNivel: 2,
@@ -39,7 +42,9 @@ export const tabelaItens = [
   
   // --- ARMADURAS ---
   { 
-    id: 'armadura_couro', nome: 'Armadura de Couro', tipo: 'armadura', 
+    id: 'armadura_couro', nome: 'Armadura de Couro', 
+    categoria: 'aventureiro',
+    tipo: 'armadura', 
     custo: { couro: 10 }, tempo: 20, 
     reqNivel: 1,
     nivelItem: 5,
@@ -48,7 +53,9 @@ export const tabelaItens = [
       danoCritico: 10, magia: 1, defesaMagica: 2,}
   },
   { 
-    id: 'armadura_ferro', nome: 'Armadura de Ferro', tipo: 'armadura', 
+    id: 'armadura_ferro', nome: 'Armadura de Ferro', 
+    categoria: 'aventureiro',
+    tipo: 'armadura', 
     custo: { ferro: 15, couro: 5 }, tempo: 60, 
     reqNivel: 2,
     nivelItem: 5,
@@ -58,10 +65,12 @@ export const tabelaItens = [
   
   // --- MUNIÇÃO ---
   { 
-    id: 'flecha_pedra', nome: 'Flechas de Pedra (x100)', tipo: 'municao', 
+    id: 'flecha_pedra', nome: 'Flechas de Pedra (x100)', 
+    categoria: 'aventureiro',
+    tipo: 'municao', 
     custo: { madeira: 100, pedra: 100 }, tempo: 20, qtd: 100, 
     reqNivel: 1,
     nivelItem: 102,
-    stats: { ataque: 2 }
+    stats: { ataque: 2, mana: 5  }
   }
 ];

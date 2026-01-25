@@ -497,14 +497,14 @@ export const acoes = {
         // Se for tudo igual, a profissão final é essa. Se não, é null (aleatória)
         let profissaoFinal = mesmaProf ? profBase : null; 
 
-        // --- VERIFICAÇÃO DE AVENTUREIROS (NOVO) ---
-        // Se todos forem aventureiros (mesmo que classes diferentes), o resultado DEVE ser aventureiro
-        const saoTodosAventureiros = funcs.every(f => f.profissao === 'aventureiro');
+        // --- VERIFICAÇÃO DE HEROIS (NOVO) ---
+        // Se todos forem heróis (mesmo que classes diferentes), o resultado DEVE ser herói
+        const saoTodosHerois = funcs.every(f => f.profissao === 'heroi');
         
         let classeFinal = null;
 
-        if (saoTodosAventureiros) {
-            profissaoFinal = 'aventureiro'; // Força ser aventureiro
+        if (saoTodosHerois) {
+            profissaoFinal = 'heroi'; // Força ser herói
             
             // Verifica se são da mesma CLASSE
             const classeBase = funcs[0].classe;
@@ -522,7 +522,7 @@ export const acoes = {
         const racaFinal = mesmaRaca ? racaBase : null;
 
         // --- CÁLCULO DO BÔNUS DE SINERGIA ---
-        // Sinergia se: Mesma Profissão OU Mesma Raça OU Mesma Classe (caso aventureiros)
+        // Sinergia se: Mesma Profissão OU Mesma Raça OU Mesma Classe (caso heróis)
         const temSinergia = mesmaProf || mesmaRaca; // (Classe igual já implica profissão igual, então está coberto)
 
         const bonusFusao = bonusSorteTotal.value * 0.6;

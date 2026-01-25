@@ -230,7 +230,7 @@ export const criarObjetoFuncionario = (tier, nivelTaverna = 1, profissaoFixa = n
     const dados = DADOS_TIERS[tier];
 
     // Lista de trabalhadores comuns (Vão para as Casas)
-    const profissoesComuns = ['minerador', 'lenhador', 'cacador', 'academico', 'aventureiro', 'saqueador', 'batedor'];
+    const profissoesComuns = ['minerador', 'lenhador', 'cacador', 'academico', 'heroi', 'saqueador', 'batedor'];
 
     // --- CONFIGURAÇÃO DOS ESPECIAIS ---
     // Regra 1: Nível da Taverna necessário
@@ -328,9 +328,9 @@ export const criarObjetoFuncionario = (tier, nivelTaverna = 1, profissaoFixa = n
             case 'ferreiro': descricaoPassiva = `Acelera produção na Ferraria em ${statPrincipal}%.`; break;
         }
     }
-    // Nova lógica para Aventureiros
+    // Nova lógica para Heróis
     let classeSorteada = null;
-    if (profissaoFinal === 'aventureiro') {
+    if (profissaoFinal === 'heroi') {
         // Se veio uma classe fixa (da fusão), usa ela. Se não, sorteia.
         if (classeFixa) {
             classeSorteada = classeFixa;
@@ -356,7 +356,7 @@ export const criarObjetoFuncionario = (tier, nivelTaverna = 1, profissaoFixa = n
         pago: true, // Se já foi pago o salário do dia
         diasEmGreve: 0, // Contador de dias em greve
         imagem: imagemNome, // Nome do arquivo de imagem
-        classe: classeSorteada, // Apenas para aventureiros
+        classe: classeSorteada, // Apenas para herois
         atributos: buffsBatalha, // Apenas para comandantes (desativado por enquanto)
         poderEspecial: statPrincipal, // Apenas para especiais
         desc: descricaoPassiva, // Apenas para especiais

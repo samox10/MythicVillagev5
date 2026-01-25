@@ -1,33 +1,161 @@
 <script setup>
-import { ref, computed, reactive, onMounted, onUnmounted} from 'vue';
-import { jogo, acoes, dadosItens, obterBuffRaca } from '../jogo.js';
+import { ref, computed, reactive, onMounted, onUnmounted, watch} from 'vue';
+import { jogo, acoes, dadosItens, obterBuffRaca, mostrarAviso } from '../jogo.js';
 
 // --- ESTADO LOCAL ---
 const filtroTipo = ref('todos');
 const filtroStat = ref('todos');
 const filtroNivel = ref('todos'); // Apenas visual por enquanto
+const abaAtual = ref('fabricacao'); // Controla qual aba está visível
+const filtroCategoria = ref('aventureiro');
 const mostrarBotaoTopo = ref(false);
-    // Função que verifica a posição da tela
-    const verificarScroll = () => {
-        // Se desceu mais que 300 pixels, mostra o botão
-        mostrarBotaoTopo.value = window.scrollY > 300;
-    };
-    // Quando a página carregar, começa a vigiar o scroll
-    onMounted(() => {
-        window.addEventListener('scroll', verificarScroll);
-    });
-    // Quando sair da página, para de vigiar (para não pesar o navegador)
-    onUnmounted(() => {
-        window.removeEventListener('scroll', verificarScroll);
-    });
-    // Função para rolar a janela até o topo suavemente
-    const voltarAoTopo = () => {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-};
 // --- Adicione isso logo abaixo das outras variáveis 'ref' ou 'const' ---
 const itemSelecionado = ref(null); // Guarda qual item estamos vendo no modal
 // Adicione isso junto com as outras variáveis 'ref'
 const slotFocado = ref(null); // Guarda qual slot está mostrando os detalhes (0, 1 ou 2)
+const modalRelatorioInterrupcao = ref(null); // Guarda a lista de itens afetados pela demissão
+// --- SISTEMA DE APRIMORAMENTO ---
+
+// 1. Variáveis de Controle Visual
+const itemParaAprimorar = ref(null);
+const pedraSelecionada = ref(null);
+const qtdPoUsado = ref(0);
+const modalSelecaoAberto = ref(null); // 'item' ou 'pedra'
+
+// 2. Definição das Regras das Pedras (Configuração)
+const DB_PEDRAS = {
+    nivel: [
+        { id: 'pedra_up_comum', nome: 'Pedra de Afiar Comum', tier: 'comum', min: 0, max: 4, chanceBase: 100 },
+        { id: 'pedra_up_rara', nome: 'Pedra de Afiar Rara', tier: 'rara', min: 4, max: 8, chanceBase: 70 }, // Ex: 70% no +5
+        { id: 'pedra_up_mitica', nome: 'Pedra de Afiar Mítica', tier: 'mitica', min: 8, max: 10, chanceBase: 40 }
+    ],
+    stats: [
+        { id: 'pedra_vida', nome: 'Rubi de Vida', tipoStat: 'vida', valor: 10, tier: 'comum' },
+        { id: 'pedra_fogo', nome: 'Brasa Eterna', tipoStat: 'res_fogo', valor: 5, tier: 'rara' },
+        // Adicione outras aqui...
+    ]
+};
+
+// 3. Inventário Simulado (PARA TESTE - Já que seus itens atuais são apenas números)
+// Futuramente, isso virá de jogo.mochila ou algo assim
+const inventarioInstancias = ref([
+    { uid: 1, id: 'espada_cobre', nome: 'Espada de Cobre', nivel: 0, falhasNivel: 0, durabilidadeMax: 100, stats: { ataque: 10 }, sockets: [], tentativasSocket: 0 },
+    { uid: 2, id: 'armadura_couro', nome: 'Peitoral de Couro', nivel: 3, falhasNivel: 0, durabilidadeMax: 100, stats: { defesa: 15 }, sockets: [], tentativasSocket: 0 },
+    { uid: 3, id: 'espada_ferro', nome: 'Lâmina do Herói', nivel: 6, falhasNivel: 4, durabilidadeMax: 100, stats: { ataque: 25 }, sockets: [], tentativasSocket: 0 }
+]);
+
+// 4. Inventário de Pedras (Simulando que você tem esses recursos)
+const minhasPedras = computed(() => {
+    // Aqui você filtraria do seu jogo.itens real. Exemplo simulado:
+    return [
+        ...DB_PEDRAS.nivel,
+        ...DB_PEDRAS.stats
+    ];
+});
+
+// --- CÁLCULOS E LÓGICA ---
+
+// Chance de Sucesso (Visual e Lógico)
+const chanceSucessoAtual = computed(() => {
+    if (!itemParaAprimorar.value || !pedraSelecionada.value) return 0;
+
+    // A. Lógica de Nível (+1 a +10)
+    if (pedraSelecionada.value.min !== undefined) {
+        const nivelAtual = itemParaAprimorar.value.nivel;
+        
+        // Verifica compatibilidade da pedra
+        if (nivelAtual < pedraSelecionada.value.min || nivelAtual >= pedraSelecionada.value.max) return 0;
+
+        // Base da pedra
+        let chance = pedraSelecionada.value.chanceBase;
+        
+        // Redução por nível (ex: -10% a cada nível acima do min da pedra)
+        const dif = nivelAtual - pedraSelecionada.value.min;
+        chance -= (dif * 10); 
+
+        // Bônus do Pó (Máximo 10%)
+        chance += Math.min(10, qtdPoUsado.value);
+
+        // Bônus do Ferreiro (Ex: +5% se tier S)
+        if (statsFerreiro.value) {
+            chance += (statsFerreiro.value.poderReal / 5); // Ajuste essa fórmula como preferir
+        }
+
+        return Math.min(100, Math.max(0, chance));
+    }
+    
+    // B. Lógica de Stats (Pedras de Atributo)
+    // Exemplo: Mítica 50%, Comum 90%
+    let chanceStat = pedraSelecionada.value.tier === 'mitica' ? 50 : 85;
+    if (statsFerreiro.value) chanceStat += (statsFerreiro.value.poderReal / 5);
+    return Math.min(100, chanceStat);
+});
+
+// AÇÃO PRINCIPAL: APRIMORAR
+const realizarAprimoramento = () => {
+    const item = itemParaAprimorar.value;
+    const pedra = pedraSelecionada.value;
+
+    if (!item || !pedra) return;
+    
+    // Validação de segurança
+    if (item.falhasNivel >= 5) {
+        alert("Este item está muito danificado para ser aprimorado (+5 Falhas).");
+        return;
+    }
+
+    const roll = Math.random() * 100;
+    const sucesso = roll <= chanceSucessoAtual.value;
+
+    // --- CENÁRIO 1: SUBIR NÍVEL ---
+    if (pedra.min !== undefined) {
+        if (sucesso) {
+            item.nivel++;
+            // Aumenta stats base (Exemplo simples)
+            Object.keys(item.stats).forEach(k => item.stats[k] += 2); // +2 por nível
+            mostrarAviso("SUCESSO!", `O item subiu para +${item.nivel}!`);
+        } else {
+            item.falhasNivel++;
+            mostrarAviso("FALHA", "O aprimoramento falhou. Cuidado com a durabilidade.");
+            
+            // Penalidade crítica
+            if (item.falhasNivel >= 5) {
+                item.durabilidadeMax = Math.floor(item.durabilidadeMax / 2);
+                mostrarAviso("QUEBRA PARCIAL", "O item atingiu 5 falhas! Durabilidade reduzida.");
+            }
+        }
+    } 
+    // --- CENÁRIO 2: ADICIONAR STAT ---
+    else {
+        // Verifica limites
+        if (item.tentativasSocket >= 7) {
+            alert("Limite de tentativas de encanto atingido (7/7).");
+            return;
+        }
+        if (item.sockets.length >= 5) {
+            alert("O item já tem 5 pedras acopladas.");
+            return;
+        }
+
+        item.tentativasSocket++;
+
+        if (sucesso) {
+            item.sockets.push({ nome: pedra.nome, stat: pedra.tipoStat, val: pedra.valor });
+            
+            // Aplica o stat no item
+            if (!item.stats[pedra.tipoStat]) item.stats[pedra.tipoStat] = 0;
+            item.stats[pedra.tipoStat] += pedra.valor;
+
+            mostrarAviso("ENCANTO SUCESSO", `Pedra acoplada! +${pedra.valor} ${pedra.tipoStat}`);
+        } else {
+            mostrarAviso("FALHA DE ENCANTO", "A pedra se partiu ao tentar acoplar.");
+        }
+    }
+
+    // Consome recursos (Simulado)
+    pedraSelecionada.value = null; // Remove a pedra do slot
+    qtdPoUsado.value = 0;
+};
 
 // Função para abrir/fechar o balão ao clicar no quadrado
 const toggleSlot = (index) => {
@@ -112,7 +240,14 @@ const fecharTooltipFora = (e) => {
 const itensFiltrados = computed(() => {
     // 1. Primeiro filtramos
     const listaFiltrada = dadosItens.filter(item => {
-        // Filtro de Tipo
+        
+        // --- CORREÇÃO AQUI ---
+        // A lógica tem que ficar DENTRO deste bloco 'filter', pois é aqui que o 'item' existe.
+        const catItem = item.categoria || 'aventureiro'; 
+        if (catItem !== filtroCategoria.value) return false;
+        // ---------------------
+
+        // Filtro de Tipo (Já existia)
         if (filtroTipo.value !== 'todos' && item.tipo !== filtroTipo.value) return false;
         
         // Filtro de Atributo (Stat)
@@ -141,6 +276,94 @@ const itensFiltrados = computed(() => {
 // --- COMPUTEDS DE FERREIRO E BUFFS ---
 const ferreiroAtivo = computed(() => {
     return jogo.funcionarios.find(f => f.profissao === 'ferreiro' && f.diasEmGreve === 0);
+});
+// --- SISTEMA DE SEGURANÇA CASO FERREIRO SEJA DEMITIDO ---
+// Vigia: Aba, Ferreiro, Filtro e Fila de Produção
+// 1. Função que faz a varredura (Separada para ser usada em dois lugares)
+// 1. Função de Segurança Atualizada (Com Modal Visual)
+// 1. Função de Segurança (Versão Corrigida: Aventureiro é Seguro)
+const aplicarSegurancaFerreiro = (aba, temFerreiro, categoria) => {
+    // 1. Navegação
+    if (aba === 'aprimoramento' && !temFerreiro) abaAtual.value = 'fabricacao';
+    if (categoria === 'heroi' && !temFerreiro) filtroCategoria.value = 'aventureiro';
+
+    // 2. Cancelamento
+    if (!temFerreiro) {
+        // Fecha modal se for Herói
+        if (itemSelecionado.value) {
+            const cat = itemSelecionado.value.categoria || 'aventureiro';
+            if (cat === 'heroi') fecharForja();
+        }
+
+        const itensAfetados = [];
+        // Varre a fila
+        for (let i = jogo.craftando.length - 1; i >= 0; i--) {
+            const slot = jogo.craftando[i];
+            const itemDados = dadosItens.find(it => it.id === slot.item);
+            if (!itemDados) continue;
+
+            const cat = itemDados.categoria || 'aventureiro';
+            if (cat !== 'heroi') continue; // Aventureiro é seguro
+
+            // Lógica de Reembolso
+            const tempoDecorrido = slot.tempoTotal - slot.tempoRestante;
+            const tempoPorItem = slot.tempoTotal / slot.qtdLote;
+            const feitos = Math.floor(tempoDecorrido / tempoPorItem);
+            const pendentes = Math.max(0, slot.qtdLote - feitos);
+
+            if (feitos > 0) jogo.itens[itemDados.id] = (jogo.itens[itemDados.id] || 0) + (feitos * (itemDados.qtd || 1));
+            
+            if (pendentes > 0) {
+                Object.keys(itemDados.custo).forEach(k => {
+                    const dev = Math.floor((itemDados.custo[k] * pendentes) * 0.9);
+                    if (jogo.minerios[k] !== undefined) jogo.minerios[k] += dev; 
+                    else jogo[k] += dev;
+                });
+            }
+
+            itensAfetados.push({ nome: itemDados.nome, img: itemDados.img, feitos: feitos, cancelados: pendentes });
+            jogo.craftando.splice(i, 1);
+        }
+        if (itensAfetados.length > 0) modalRelatorioInterrupcao.value = itensAfetados;
+    }
+};
+
+
+
+    // Função que verifica a posição da tela
+    const verificarScroll = () => {
+        // Se desceu mais que 300 pixels, mostra o botão
+        mostrarBotaoTopo.value = window.scrollY > 300;
+    };
+    const protegerMultitarefa = (event) => {
+    // Se o LocalStorage mudou em outra aba, recarrega essa aqui
+    if (event.storageArea === localStorage) {
+        fecharForja();
+        alert("⚠️ ATENÇÃO: Ação detectada em outra aba!\nA página será atualizada para evitar erros.");
+        window.location.reload();
+    }
+};
+    // 2. O Vigilante (Monitora mudanças enquanto a tela está aberta)
+    watch([abaAtual, ferreiroAtivo, filtroCategoria], ([novaAba, temFerreiro, novaCategoria]) => {
+        aplicarSegurancaFerreiro(novaAba, temFerreiro, novaCategoria);
+    });
+    // Quando a página carregar, começa a vigiar o scroll
+    // 3. A Varredura Inicial (Monitora assim que a tela abre)
+    onMounted(() => {
+    // 1. Roda a verificação de segurança inicial (para corrigir bugs ao abrir a aba)
+    aplicarSegurancaFerreiro(abaAtual.value, ferreiroAtivo.value, filtroCategoria.value);
+    
+    // 2. Ativa o ouvinte de Scroll
+    window.addEventListener('scroll', verificarScroll);
+
+    // 3. Ativa a proteção contra Múltiplas Abas
+    window.addEventListener('storage', protegerMultitarefa);
+});
+    // Quando sair da página, para de vigiar (para não pesar o navegador)
+    onUnmounted(() => {
+    // Limpa tudo ao sair para não pesar o navegador
+    window.removeEventListener('scroll', verificarScroll);
+    window.removeEventListener('storage', protegerMultitarefa);
 });
 
 // Calcula os buffs visuais baseado no ferreiro atual
@@ -268,8 +491,15 @@ const corTier = (t) => ({'F':'#8A8A8A','E':'#659665','D':'#71c404','C':'#475fad'
     <div class="abas-taverna">
     <button :class="{ ativo: abaAtual === 'fabricacao' }" @click="abaAtual = 'fabricacao'">FABRICAÇÃO</button>
     
-    <button :class="{ ativo: abaAtual === 'aprimoramento' }" @click="abaAtual = 'aprimoramento'">APRIMORAMENTO</button>
-    </div>
+    <button 
+        :class="{ 'ativo': abaAtual === 'aprimoramento', 'bloqueado': !ferreiroAtivo }" 
+        @click="abaAtual = 'aprimoramento'"
+        :disabled="!ferreiroAtivo"
+        :title="!ferreiroAtivo ? 'Requer um Ferreiro contratado (O Ajudante não sabe aprimorar itens)' : ''">
+        APRIMORAMENTO <span v-if="!ferreiroAtivo" style="margin-left:5px; font-size: 0.9em;">🔒</span>
+    </button>
+    
+</div>
     <div v-if="abaAtual === 'fabricacao'">
     <div class="painel-controle-ferraria">
         
@@ -316,39 +546,42 @@ const corTier = (t) => ({'F':'#8A8A8A','E':'#659665','D':'#71c404','C':'#475fad'
 
                 <div class="rodape-card">
                     <div class="info-produtividade">
-                        Aumento de produtividade em <span class="verde">{{ statsFerreiro.tempo }}%</span>
+                        Maestria da forja +<span class="verde">{{ statsFerreiro.tempo }}%</span>
                     </div>
                     <div class="frase-efeito">
                         "{{ ferreiroAtivo.frase || 'Pronto para forjar!' }}"
                     </div>
                 </div>
             </div>
-            <div v-else class="card-funcionario vazio-ferreiro-card">
+            <div v-else class="card-funcionario ferreiro-ativo" style="border-color: #95a5a6; opacity: 0.9;">
                 
-                <div class="card-topo vazio-topo">
+                <div class="card-topo" style="background-color: #95a5a6;">
                     <div class="topo-esquerda">
-                        <span class="tier-badge vazio-badge">-</span>
-                        <span class="card-nome">Vaga Aberta</span>
+                        <span class="tier-badge" style="background: rgba(0,0,0,0.2)">-</span>
+                        <span class="card-nome">Aprendiz da Vila</span>
                     </div>
-                    <img src="/assets/ui/i_ferreiro.png" class="icon-prof-topo grayscale" title="Necessário Ferreiro">
+                    
+                    <div class="molde-icone-prof">
+                        <img src="/assets/ui/i_ferreiro.png" class="img-prof-inner" title="Ferreiro Interino" style="filter: grayscale(1);">
+                    </div>
                 </div>
 
                 <div class="card-mid">
-                    <div class="avatar-box vazio-avatar-box">
-                         <img src="/assets/ui/icone_morador.png" class="avatar-vazio">
+                    <div class="avatar-box">
+                         <img src="/assets/faces/humano/ferreiro_m.png" class="avatar-func" style="filter: sepia(0.4);">
                     </div>
 
-                    <div class="tabela-dados-func vazio-dados">
-                        <div class="texto-central-vazio">
-                            <span class="titulo-vazio">Sem Ferreiro</span>
-                            <span class="subtitulo-vazio">ESTAMOS CONTRATANDO</span>
+                    <div class="tabela-dados-func" style="justify-content: flex-start; align-self: flex-start; margin-top: 5px;">
+                        <div class="linha-dado">
+                            <span class="dado-label">Profissão:</span>
+                            <span class="dado-valor">Ajudante</span>
                         </div>
-                    </div>
+                        </div>
                 </div>
 
-                <div class="rodape-card vazio-rodape">
+                <div class="rodape-card">
                     <div class="frase-efeito">
-                        "A forja está fria..."
+                        "Segurando as pontas até o mestre chegar..."
                     </div>
                 </div>
             </div>
@@ -357,7 +590,22 @@ const corTier = (t) => ({'F':'#8A8A8A','E':'#659665','D':'#71c404','C':'#475fad'
         <div class="linha-divisoria"></div>
 
         <div class="lado-direito-filtros">
-            <h4 class="titulo-filtros">🔍 Filtros de Produção</h4>
+            <div class="botoes-categoria-wrapper">
+    <button 
+        class="btn-cat" 
+        :class="{ 'ativo': filtroCategoria === 'aventureiro' }"
+        @click="filtroCategoria = 'aventureiro'">
+        Aventureiros
+    </button>
+    <button 
+        class="btn-cat" 
+        :class="{ 'ativo': filtroCategoria === 'heroi', 'bloqueado': !ferreiroAtivo }"
+        :disabled="!ferreiroAtivo"
+        :title="!ferreiroAtivo ? 'Requer um Ferreiro contratado (O Ajudante não sabe forjar itens de Herói)' : ''"
+        @click="filtroCategoria = 'heroi'">
+        Heróis <span v-if="!ferreiroAtivo" style="margin-left:5px; font-size: 0.9em;">🔒</span>
+    </button>
+</div>
             
             <fieldset class="input-rpg">
                 <legend>Tipo de Item</legend>
@@ -594,19 +842,243 @@ const corTier = (t) => ({'F':'#8A8A8A','E':'#659665','D':'#71c404','C':'#475fad'
           :style="{ top: tooltipData.y + 'px', left: tooltipData.x + 'px' }">
         {{ tooltipData.texto }}
     </div>
+    </div>
+    <div v-if="abaAtual === 'aprimoramento'">
+        <div class="painel-controle-ferraria">
+            
+            <div v-if="ferreiroAtivo" class="card-funcionario ferreiro-ativo" :style="{ borderColor: corTier(ferreiroAtivo.tier) }">
+                
+                <div class="card-topo" :style="{ backgroundColor: corTier(ferreiroAtivo.tier) }">
+                    <div class="topo-esquerda">
+                        <span class="tier-badge">{{ ferreiroAtivo.tier }}</span>
+                        <span class="card-nome">{{ ferreiroAtivo.nome }}</span>
+                    </div>
+                    
+                    <div class="molde-icone-prof">
+                        <img src="/assets/ui/i_ferreiro.png" class="img-prof-inner" title="Ferreiro">
+                    </div>
+                </div>
+
+                <div class="card-mid">
+                    <div class="avatar-box">
+                         <img :src="`/assets/faces/${ferreiroAtivo.raca}/${ferreiroAtivo.imagem}.png`" class="avatar-func">
+                    </div>
+
+                    <div class="tabela-dados-func">
+                        <div class="linha-dado">
+                            <span class="dado-label">Profissão:</span>
+                            <span class="dado-valor">Ferreiro</span>
+                        </div>
+                        <div class="linha-dado">
+                            <span class="dado-label">Raça:</span>
+                            <span class="dado-valor capitalize">{{ ferreiroAtivo.raca }}</span>
+                        </div>
+                        <div class="linha-dado">
+                            <span class="dado-label">Sexo:</span>
+                            <span class="dado-valor">{{ ferreiroAtivo.sexo === 'masculino' ? 'Masculino' : 'Feminino' }}</span>
+</div>
+                        <div class="linha-dado">
+                            <span class="dado-label">Salário:</span>
+                            <span class="dado-valor">
+                                {{ formatarNumero(ferreiroAtivo.salario) }} 
+                                <img src="/assets/ui/icone_goldC.png" class="tiny-coin">
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="rodape-card">
+                    <div class="info-produtividade">
+                        Maestria da forja +<span class="verde">{{ statsFerreiro.tempo }}%</span>
+                    </div>
+                    <div class="frase-efeito">
+                        "{{ ferreiroAtivo.frase || 'Pronto para forjar!' }}"
+                    </div>
+                </div>
+            </div>
+            <div v-else class="card-funcionario vazio-ferreiro-card">
+                 <div class="card-topo vazio-topo"><span class="card-nome">Sem Ferreiro</span></div>
+                  <div class="card-mid"><span style="padding:20px;">Aprimoramento Bloqueado</span></div>
+            </div>
+
+
+            <div class="linha-divisoria"></div>
+
+            <div class="lado-direito-aprimoramento">
+                
+                <h4 class="titulo-bancada">✨ Bancada Rúnica</h4>
+
+                <div class="slots-bancada-wrapper">
+                    
+                    <div class="slot-group">
+                        <div class="slot-aprimoramento" 
+                             :class="{ 'vazio': !itemParaAprimorar }"
+                             @click="modalSelecaoAberto = 'item'">
+                            
+                            <img v-if="itemParaAprimorar" :src="(dadosItens.find(i=>i.id===itemParaAprimorar.id)||{}).img" class="img-slot-grande">
+                            <span v-else class="placeholder-slot">⚔️</span>
+                            
+                            <div v-if="itemParaAprimorar" class="tag-nivel-slot">+{{ itemParaAprimorar.nivel }}</div>
+                        </div>
+                        <span class="label-slot">Item</span>
+                    </div>
+
+                    <div class="seta-bancada">➡</div>
+
+                    <div class="slot-group">
+                        <div class="slot-aprimoramento" 
+                             :class="{ 'vazio': !pedraSelecionada, 'pedra': pedraSelecionada }"
+                             @click="modalSelecaoAberto = 'pedra'">
+                            
+                            <div v-if="pedraSelecionada" class="pedra-visual">💎</div>
+                            <span v-else class="placeholder-slot">💠</span>
+                        </div>
+                        <span class="label-slot">Pedra</span>
+                    </div>
+
+                </div>
+
+                <div class="painel-info-aprimoramento">
+                    
+                    <div class="controle-po" v-if="pedraSelecionada && pedraSelecionada.min !== undefined">
+                        <span class="po-label">Pó Mágico:</span>
+                        <input type="range" v-model.number="qtdPoUsado" min="0" max="10" class="slider-po">
+                        <span class="po-valor">+{{ qtdPoUsado }}%</span>
+                    </div>
+
+                    <button class="btn-aprimorar" 
+                            :disabled="!itemParaAprimorar || !pedraSelecionada || !ferreiroAtivo"
+                            @click="realizarAprimoramento">
+                        
+                        <div class="btn-content">
+                            <span>APRIMORAR</span>
+                            <span class="chance-tag" :class="{'alta': chanceSucessoAtual > 70, 'baixa': chanceSucessoAtual < 40}">
+                                {{ chanceSucessoAtual.toFixed(0) }}% Chance
+                            </span>
+                        </div>
+                    </button>
+                    
+                    <div class="aviso-risco" v-if="itemParaAprimorar && itemParaAprimorar.falhasNivel > 0">
+                        ⚠️ Atenção: Item com {{ itemParaAprimorar.falhasNivel }}/5 falhas.
+                    </div>
+
+                </div>
+
+            </div>
+        </div>
+
+        <div v-if="modalSelecaoAberto" class="modal-overlay" @click.self="modalSelecaoAberto = null">
+            <div class="modal-content-forja">
+                <div class="alert-header">
+                    <h3>Selecione {{ modalSelecaoAberto === 'item' ? 'o Equipamento' : 'a Pedra' }}</h3>
+                    <button @click="modalSelecaoAberto = null">✖</button>
+                </div>
+                
+                <div class="lista-receitas-scroll">
+                    
+                    <template v-if="modalSelecaoAberto === 'item'">
+                        <div v-for="item in inventarioInstancias" :key="item.uid" 
+                             class="card-light-fixed" @click="itemParaAprimorar = item; modalSelecaoAberto = null">
+                            <div class="box-img-light">
+                                <img :src="(dadosItens.find(i=>i.id===item.id)||{}).img" class="img-light-fixa">
+                                <div class="nivel-tag">+{{ item.nivel }}</div>
+                            </div>
+                            <div class="miolo-light">
+                                <span class="nome-item-light">{{ item.nome }}</span>
+                                <small>Falhas: {{ item.falhasNivel }}/5</small>
+                            </div>
+                        </div>
+                    </template>
+
+                    <template v-else>
+                        <div v-for="pedra in minhasPedras" :key="pedra.id" 
+                             class="card-light-fixed" style="height: 80px;" 
+                             @click="pedraSelecionada = pedra; modalSelecaoAberto = null">
+                            <div class="box-img-light" style="width: 80px;">
+                                <div style="font-size: 2em;">💎</div>
+                            </div>
+                            <div class="miolo-light">
+                                <span class="nome-item-light">{{ pedra.nome }}</span>
+                                <small v-if="pedra.min !== undefined">Nível: +{{ pedra.min }} a +{{ pedra.max }}</small>
+                                <small v-else>Stat: {{ pedra.tipoStat }} (+{{ pedra.valor }})</small>
+                            </div>
+                        </div>
+                    </template>
+
+                </div>
+            </div>
+        </div>
+    </div>
     <button v-if="mostrarBotaoTopo"
         class="btn-scroll-topo"
         @click="voltarAoTopo"
         title="Voltar ao Topo">
     ▲
 </button>
-</div>
+
 </div> 
+<div v-if="modalRelatorioInterrupcao" class="modal-overlay" style="z-index: 9999;">
+        <div class="modal-content-alert">
+            
+            <div class="alert-header">
+                <div class="alert-icon">⚠️</div>
+                <h3>Produção Interrompida</h3>
+            </div>
+            
+            <p class="alert-msg">
+                O Ferreiro deixou a forja! Os itens complexos não podem ser concluídos pelo Ajudante.
+            </p>
+
+            <div class="lista-cancelados-scroll">
+                <div v-for="(relatorio, idx) in modalRelatorioInterrupcao" :key="idx" class="card-cancelamento">
+                    
+                    <div class="cancel-left">
+                        <img :src="relatorio.img" class="img-cancelado">
+                    </div>
+
+                    <div class="cancel-right">
+                        <span class="nome-cancelado">{{ relatorio.nome }}</span>
+                        
+                        <div class="stats-cancel">
+                            <div class="stat-box success" v-if="relatorio.feitos > 0">
+                                <span class="lbl">Entregues</span>
+                                <span class="val">✅ {{ relatorio.feitos }}</span>
+                            </div>
+                            <div class="stat-box error">
+                                <span class="lbl">Cancelados</span>
+                                <span class="val">🚫 {{ relatorio.cancelados }}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="alert-footer">
+                <small>Recursos dos itens cancelados foram devolvidos (Multa de 10% aplicada).</small>
+                <button class="btn-alert-ok" @click="modalRelatorioInterrupcao = null">Entendi</button>
+            </div>
+
+        </div>
+    </div>
 </template>
 
 <style scoped>
-@import '../css/taverna.css';
 @import '../css/importantes.css';
+.abas-taverna button.bloqueado {
+    opacity: 0.6;
+    cursor: not-allowed;
+    background: #95a5a6; /* Cinza Concreto */
+    color: #ecf0f1;
+    border-color: #7f8c8d;
+    box-shadow: none;
+}
+
+/* Garante que não mude de cor ao passar o mouse se estiver bloqueado */
+.abas-taverna button.bloqueado:hover {
+    background: #95a5a6;
+    transform: none;
+    color: #ecf0f1;
+}
 
 /* --- PAINEL DE CONTROLE (Topo) --- */
 .painel-controle-ferraria {
@@ -669,28 +1141,39 @@ const corTier = (t) => ({'F':'#8A8A8A','E':'#659665','D':'#71c404','C':'#475fad'
 @media(max-width: 480px) {
     /* 1. Remove o padding do fundo escuro no celular para não atrapalhar o cálculo */
     .modal-overlay {
-    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-    background: rgba(0, 0, 0, 0.7);
-    display: flex; align-items: center; justify-content: center;
-    
-    /* MUDOU AQUI: De 1000 para 20000 (Para vencer o 9999 da Ferraria) */
-    z-index: 20000; 
-    
-    backdrop-filter: blur(2px);
-}
+        /* Garante que o container ocupe a tela toda */
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0, 0, 0, 0.75);
+        z-index: 20000;
+        backdrop-filter: blur(3px);
+        
+        /* O SEGREDO DO CENTRO: Flexbox */
+        display: flex !important;
+        align-items: center !important;     /* Centro Vertical */
+        justify-content: center !important; /* Centro Horizontal */
+        padding: 0 !important;              /* Remove padding para não atrapalhar */
+    }
 
     /* 2. Força o modal a ficar centralizado e com tamanho correto */
     .modal-content-forja {
-        width: 90% !important;     /* Ocupa 90% da tela (sobra 5% de cada lado) */
-        margin: auto !important;   /* A MÁGICA: Centraliza vertical e horizontalmente no Flexbox */
-        padding: 15px !important;  /* Espaço interno menor para caber mais coisa */
-        box-sizing: border-box !important; /* Garante que o padding não aumente a largura */
+        /* Tamanho */
+        width: 85% !important;        /* Deixa uma margem de respiro nas laterais */
+        max-width: 380px !important;  /* Não deixa ficar gigante em tablets */
+        max-height: 85vh !important;  /* Altura máxima segura */
         
-        /* Reseta posições que podem estar atrapalhando */
-        left: auto !important;
-        right: auto !important;
-        top: auto !important;
-        transform: none !important; 
+        /* Posição: Removemos 'margin: auto' e deixamos o Flexbox (pai) centralizar */
+        margin: 0 !important; 
+        
+        /* Reset de posições absolutas que possam estar atrapalhando */
+        position: relative !important;
+        top: auto !important; left: auto !important; 
+        right: auto !important; bottom: auto !important;
+        transform: none !important;
+
+        /* Visual */
+        border-radius: 12px !important;
+        padding: 15px !important;
+        box-sizing: border-box !important;
     }
 
     /* 3. Ajustes internos para o conteúdo caber bem */
@@ -702,6 +1185,9 @@ const corTier = (t) => ({'F':'#8A8A8A','E':'#659665','D':'#71c404','C':'#475fad'
 
     .modal-input-group {
         justify-content: center; /* Centraliza o contador de +/- */
+    }
+    .lista-receitas-scroll {
+        grid-template-columns: 1fr !important; /* 1 Coluna no celular */
     }
 }
 
@@ -1644,4 +2130,262 @@ const corTier = (t) => ({'F':'#8A8A8A','E':'#659665','D':'#71c404','C':'#475fad'
     .stats-esquerda { padding-right: 0; }
     .stats-direita { padding-left: 0; margin-top: 5px; border-top: 1px dashed #ccc; }
 }
+h4 { 
+    margin: 0 0 5px 0; 
+    font-size: 0.75em; 
+    text-transform: uppercase; 
+    letter-spacing: 1px; 
+    text-align: center; 
+    width: 100%; 
+}
+.painel-aprimoramento {
+    padding: 40px;
+    text-align: center;
+    background: #ecf0f1;
+    border: 2px dashed #bdc3c7;
+    border-radius: 8px;
+    margin-top: 20px;
+    color: #7f8c8d;
+}
+.aviso-em-breve h3 {
+    color: #d35400;
+    margin-bottom: 10px;
+}
+/* Container dos botões Aventureiro/Heroi */
+.botoes-categoria-wrapper {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 15px; /* Espaço para os filtros de baixo */
+    width: 80%;
+    justify-content: center;
+}
+
+/* --- OPÇÃO 1: PLACA DE METAL (Rústico) --- */
+.btn-cat {
+    flex: 1;
+    padding: 6px 4px;
+    /* Degradê suave de branco para azul gelo */
+    background: linear-gradient(to bottom, #ffffff, #eaf2f8);
+    border: 1px solid #b1b6b9;
+    border-radius: 20px; /* Bordas bem redondas (pílula) */
+    color: #85929e;
+    font-weight: 600;
+    font-size: 0.75em;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-cat:hover {
+    background: #eaf2f8;
+    color: #2e86c1;
+}
+
+.btn-cat.ativo {
+    background: #3498db;
+    border-color: #2980b9;
+    color: white;
+    /* Remove a redondeza ao ativar ou mantém? Vamos manter */
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.2); /* Parece "apertado" para dentro */
+}
+.btn-cat:disabled {
+    cursor: not-allowed !important; /* O !important garante que o ponteiro mude */
+    opacity: 0.5;
+    background: #bdc3c7;
+    border-color: #95a5a6;
+    color: #7f8c8d;
+    box-shadow: none;
+}
+/* --- ESTILO DO MODAL DE ALERTA --- */
+.modal-content-alert {
+    background: #fff;
+    width: 90%;
+    max-width: 380px;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+    animation: modalPop 0.3s ease-out;
+    display: flex; flex-direction: column;
+}
+
+.alert-header {
+    background: #e74c3c; /* Vermelho Alerta */
+    color: white;
+    padding: 15px;
+    display: flex; align-items: center; gap: 10px;
+}
+.alert-icon { font-size: 1.5em; }
+.alert-header h3 { margin: 0; font-size: 1.1em; text-transform: uppercase; letter-spacing: 0.5px; }
+
+.alert-msg {
+    padding: 15px 15px 5px 15px;
+    color: #7f8c8d;
+    font-size: 0.9em;
+    text-align: center;
+    line-height: 1.4;
+}
+
+/* Lista de Itens */
+.lista-cancelados-scroll {
+    padding: 10px 15px;
+    max-height: 250px;
+    overflow-y: auto;
+    display: flex; flex-direction: column; gap: 10px;
+}
+
+.card-cancelamento {
+    display: flex;
+    background: #fdfefe;
+    border: 1px solid #ecf0f1;
+    border-radius: 8px;
+    padding: 8px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+}
+
+.img-cancelado {
+    width: 50px; height: 50px;
+    object-fit: contain;
+    background: #ecf0f1;
+    border-radius: 4px;
+    border: 1px solid #bdc3c7;
+}
+
+.cancel-right {
+    flex: 1; margin-left: 10px;
+    display: flex; flex-direction: column; justify-content: center;
+}
+
+.nome-cancelado {
+    font-weight: bold; color: #2c3e50; font-size: 0.9em; margin-bottom: 5px;
+}
+
+.stats-cancel { display: flex; gap: 10px; }
+
+.stat-box {
+    display: flex; flex-direction: column;
+    font-size: 0.75em;
+    background: #f4f6f7;
+    padding: 3px 6px;
+    border-radius: 4px;
+}
+.stat-box.success .val { color: #27ae60; font-weight: bold; font-size: 1.1em; }
+.stat-box.error .val { color: #c0392b; font-weight: bold; font-size: 1.1em; }
+
+.alert-footer {
+    background: #f9f9f9;
+    padding: 15px;
+    text-align: center;
+    border-top: 1px solid #ecf0f1;
+}
+.alert-footer small { display: block; color: #95a5a6; margin-bottom: 10px; font-size: 0.75em; }
+
+.btn-alert-ok {
+    background: #34495e;
+    color: white;
+    border: none;
+    padding: 10px 30px;
+    border-radius: 6px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+.btn-alert-ok:hover { background: #2c3e50; }
+/* --- ESTILOS DA BANCADA DE APRIMORAMENTO --- */
+
+.lado-direito-aprimoramento {
+    flex: 1;
+    display: flex; flex-direction: column;
+    padding: 10px;
+    background: #fdfefe;
+    border-radius: 8px;
+    height: 100%;
+    align-items: center;
+}
+
+.titulo-bancada {
+    color: #8e44ad; /* Roxo Místico */
+    text-transform: uppercase;
+    border-bottom: 2px solid #ecf0f1;
+    width: 100%; text-align: center;
+    margin-bottom: 15px;
+}
+
+.slots-bancada-wrapper {
+    display: flex; align-items: center; gap: 15px;
+    margin-bottom: 20px;
+}
+
+.slot-group {
+    display: flex; flex-direction: column; align-items: center; gap: 5px;
+}
+
+.slot-aprimoramento {
+    width: 80px; height: 80px;
+    border: 2px dashed #bdc3c7;
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    background: #ecf0f1;
+    cursor: pointer;
+    position: relative;
+    transition: all 0.2s;
+}
+
+.slot-aprimoramento:hover {
+    border-color: #8e44ad;
+    background: #f4ecf7;
+    transform: scale(1.05);
+}
+
+.slot-aprimoramento.vazio .placeholder-slot { font-size: 2em; opacity: 0.3; }
+
+.img-slot-grande { width: 80%; height: 80%; object-fit: contain; filter: drop-shadow(0 4px 4px rgba(0,0,0,0.2)); }
+
+.tag-nivel-slot {
+    position: absolute; bottom: -5px; right: -5px;
+    background: #8e44ad; color: white;
+    font-size: 0.8em; font-weight: bold;
+    padding: 2px 6px; border-radius: 4px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
+.seta-bancada { font-size: 1.5em; color: #bdc3c7; }
+
+/* Controles de Baixo */
+.painel-info-aprimoramento {
+    width: 100%;
+    display: flex; flex-direction: column; gap: 10px;
+}
+
+.controle-po {
+    display: flex; align-items: center; gap: 10px;
+    background: #f8f9fa; padding: 8px; border-radius: 6px;
+}
+.slider-po { flex: 1; cursor: pointer; }
+.po-valor { font-weight: bold; color: #2980b9; }
+
+.btn-aprimorar {
+    width: 100%;
+    background: linear-gradient(to right, #8e44ad, #9b59b6);
+    color: white; border: none; padding: 12px;
+    border-radius: 8px; cursor: pointer;
+    transition: transform 0.1s;
+    box-shadow: 0 4px 0 #71368a;
+}
+.btn-aprimorar:active { transform: translateY(4px); box-shadow: none; }
+.btn-aprimorar:disabled { background: #bdc3c7; cursor: not-allowed; box-shadow: none; }
+
+.btn-content { display: flex; justify-content: space-between; align-items: center; font-weight: bold; }
+
+.chance-tag {
+    background: rgba(0,0,0,0.2);
+    padding: 2px 8px; border-radius: 4px; font-size: 0.9em;
+}
+.chance-tag.alta { color: #2ecc71; background: rgba(46, 204, 113, 0.2); }
+.chance-tag.baixa { color: #e74c3c; background: rgba(231, 76, 60, 0.2); }
+
+.aviso-risco {
+    font-size: 0.75em; color: #e67e22; text-align: center; font-weight: bold;
+}
+
+/* Ajuste no Modal para a lista de pedras */
+.pedra-visual { font-size: 2.5em; animation: luzInterna 2s infinite; }
 </style>
