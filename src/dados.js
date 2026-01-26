@@ -47,7 +47,7 @@ export const tabelaItens = [
   // --- ARMADURAS ---
   { 
     id: 'armadura_couro', nome: 'Armadura de Couro', 
-    categoria: 'aventureiro',
+    categoria: 'heroi',
     tipo: 'armadura', 
     custo: { couro: 10 }, tempo: 20, 
     reqNivel: 1,

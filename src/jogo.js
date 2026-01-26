@@ -687,8 +687,23 @@ export const acoes = {
                 
                 const receita = tabelaItens.find(i => i.id === slot.item);
                 if (receita) {
-                    // Entrega todos os itens do lote imediatamente
-                    jogo.itens[receita.id] += ((receita.qtd || 1) * slot.qtdLote);
+                    // CORREÇÃO: Verifica se é Herói para criar item único (igual ao finalizarCraft)
+                    if (receita.categoria === 'heroi') {
+                        for (let k = 0; k < slot.qtdLote; k++) {
+                             jogo.equipamentos.push({
+                                uid: Date.now() + Math.random(), 
+                                id: receita.id,
+                                nome: receita.nome,
+                                nivel: 0, 
+                                tipo: receita.tipo,
+                                categoria: 'heroi',
+                                stats: { ...receita.stats } 
+                            });
+                        }
+                    } else {
+                        // Se for item comum, soma na pilha
+                        jogo.itens[receita.id] = (jogo.itens[receita.id] || 0) + ((receita.qtd || 1) * slot.qtdLote);
+                    }
                 }
                 
                 // Remove da fila

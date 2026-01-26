@@ -817,7 +817,7 @@ const corTier = (t) => ({'F':'#8A8A8A','E':'#659665','D':'#71c404','C':'#475fad'
     
     <div class="painel-inventario-compacto">
         <div class="topo-filtro-inv">
-            <h4 class="titulo-sessao">🎒 SEUS ITENS</h4>
+            <h4 class="titulo-sessao">SEUS ITENS</h4>
             <div class="grade-botoes-filtro">
     <button :class="{ ativo: filtroInv === 'arma' }" @click="filtroInv = 'arma'" title="Armas">⚔️</button>
     <button :class="{ ativo: filtroInv === 'elmo' }" @click="filtroInv = 'elmo'" title="Elmos">🪖</button>
@@ -858,71 +858,89 @@ const corTier = (t) => ({'F':'#8A8A8A','E':'#659665','D':'#71c404','C':'#475fad'
         </div>
 
         <div v-else class="interface-mistica-ativa">
-            <div class="moldura-carta-rpg">
-                <div class="topo-carta">
-                    <span class="raridade-label">Aprimoramento</span>
-                    <div class="cristal-nivel">+{{ itemParaAprimorar.nivel }}</div>
+        <div class="moldura-carta-rpg card-vertical-stats">
+            
+            <div class="topo-imagem-centro">
+                <div class="nivel-flutuante-centro">+{{ itemParaAprimorar.nivel }}</div>
+                
+                <div class="item-flutuante">
+                    <img :src="(dadosItens.find(i=>i.id===itemParaAprimorar.id)||{}).img" class="img-centro-destaque">
                 </div>
+            </div>
+            
+            <div class="barra-nome-item">
+                <h3 class="titulo-centro">{{ itemParaAprimorar.nome }}</h3>
+            </div>
 
-                <div class="imagem-carta-foco">
-                    <div class="aura-magica"></div>
-                    <img :src="(dadosItens.find(i=>i.id===itemParaAprimorar.id)||{}).img" class="img-carta">
-                </div>
+            <div class="divisor-fino"></div>
 
-                <div class="corpo-carta">
-                    <h3 class="titulo-carta">{{ itemParaAprimorar.nome }}</h3>
-                    <div class="divisor-ornado"></div>
-                    <div v-if="itemParaAprimorar.stats" class="lista-atributos-carta">
-                        <div v-for="(valor, stat) in itemParaAprimorar.stats" :key="stat" class="atributo-item">
-                            <span class="at-nome">{{ stat }}</span>
-                            <span class="at-valor">{{ valor }} <span class="up-val">➜ {{ valor + 2 }}</span></span>
+            <div class="area-stats-dupla">
+                <template v-for="(valor, stat) in itemParaAprimorar.stats" :key="stat">
+                    <div class="linha-stat-mini">
+                        <div class="stat-label-box">
+                            <img v-if="mapaAtributos[stat]" :src="`/assets/ui/${mapaAtributos[stat].img}`" class="ico-stat-pp">
+                            <span class="lbl-stat">{{ mapaAtributos[stat] ? mapaAtributos[stat].nome : stat }}</span>
+                        </div>
+                        
+                        <div class="stat-val-box">
+                            <span class="v-old">{{ valor }}</span>
+                            <span class="seta-mini">➜</span>
+                            <span class="v-new">{{ valor + 2 }}</span>
                         </div>
                     </div>
+                </template>
+            </div>
+        </div>
+
+        <div class="controles-mistica">
+            <div class="consumivel-box compacta">
+                <div class="material-header">
+                    <span class="pedra-label">
+                        <span class="icone-pedra">💎</span> {{ pedraAutomatica?.nome || 'Sem Pedra' }}
+                    </span>
+                </div>
+                
+                <div class="po-controle-v2">
+                    <div class="po-info">
+                        <span>Pó Místico</span>
+                        <strong>+{{ qtdPoUsado }}%</strong>
+                    </div>
+                    <input type="range" v-model.number="qtdPoUsado" min="0" max="10" class="slider-mistico">
                 </div>
             </div>
 
-            <div class="controles-mistica">
-                <div class="consumivel-box compacta">
-                    <div class="material-header">
-                        <span class="pedra-label">{{ pedraAutomatica?.nome }}<br></span>
-                    </div>
-                    
-                    <div class="po-controle-v2">
-                        <div class="po-info">Pó Místico: <strong>+{{ qtdPoUsado }}%</strong></div>
-                        <input type="range" v-model.number="qtdPoUsado" min="0" max="10" class="slider-mistico">
-                    </div>
+            <div class="acao-box-compacta">
+                <div class="chance-display-horizontal">
+                    <span class="c-txt">CHANCE:</span>
+                    <span class="c-num texto-rpg"
+                        :class="{ 
+                            'rpg-sucesso': chanceSucessoAtual >= 80, 
+                            'rpg-atencao': chanceSucessoAtual >= 40 && chanceSucessoAtual < 80, 
+                            'rpg-perigo': chanceSucessoAtual < 40 
+                        }">
+                        {{ chanceSucessoAtual.toFixed(0) }}%
+                    </span>
                 </div>
-
-                <div class="acao-box-compacta">
-                    <div class="chance-display-horizontal">
-                        <span class="c-txt">SUCESSO:</span>
-                        <span class="c-num texto-rpg"
-                            :class="{ 
-                                'rpg-sucesso': chanceSucessoAtual >= 80, 
-                                'rpg-atencao': chanceSucessoAtual >= 40 && chanceSucessoAtual < 80, 
-                                'rpg-perigo': chanceSucessoAtual < 40 
-                            }">
-                            {{ chanceSucessoAtual.toFixed(0) }}%
-                        </span>
-                    </div>
-                    <button class="btn-encantar-v2" :disabled="!pedraAutomatica" @click="realizarAprimoramento">
-                        ENCANTAR
+                
+                <button class="btn-encantar-v2" :disabled="!pedraAutomatica" @click="realizarAprimoramento">
+                    ENCANTAR
+                </button>
+                
+                <div class="painel-descarte">
+                    <button class="btn-icon-clean lixeira" @click="lixeiraItem" title="Destruir Item">
+                        🗑️
                     </button>
-                    <div class="painel-descarte">
-                        <button class="btn-lixeira" @click="lixeiraItem" title="Jogar fora (Destruir)">
-                            🗑️
-                        </button>
-                        
-                        <button v-if="itemParaAprimorar && itemParaAprimorar.nivel >= 5" 
-                                class="btn-reciclar" 
-                                @click="reciclarItem" 
-                                title="Reciclar em Pó Místico">
-                            ♻️ Extrair Pó
-                        </button>
-                    </div>
+                    
+                    <button v-if="itemParaAprimorar && itemParaAprimorar.nivel >= 5" 
+                            class="btn-icon-clean reciclar" 
+                            @click="reciclarItem" 
+                            title="Extrair Pó Místico">
+                        ♻️
+                    </button>
                 </div>
             </div>
         </div>
+    </div>
     </div>
 </div>
     <button v-if="mostrarBotaoTopo"
@@ -1648,6 +1666,10 @@ const corTier = (t) => ({'F':'#8A8A8A','E':'#659665','D':'#71c404','C':'#475fad'
         z-index: 9998;
         backdrop-filter: blur(2px);
     }
+    .area-stats-dupla { 
+        gap: 5px 10px; 
+        padding: 10px;
+    }
 
     /* 2. A Janela Centralizada (COM FORÇA TOTAL) */
     .tooltip-progresso {
@@ -2133,18 +2155,6 @@ h4 {
 @keyframes pulseBar { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }
 /* --- ESTILO CARTA MÍSTICA --- */
 
-/* 1. Moldura da Carta */
-.moldura-carta-rpg {
-    width: 280px;
-    background: #fff;
-    border: 8px solid #f1f2f6;
-    border-radius: 15px;
-    box-shadow: 0 15px 35px rgba(0,0,0,0.1), inset 0 0 10px rgba(0,0,0,0.05);
-    display: flex;
-    flex-direction: column;
-    position: relative;
-    overflow: hidden;
-}
 
 .topo-carta {
     padding: 8px;
@@ -2266,19 +2276,19 @@ h4 {
     border-color: #8e44ad;
     box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
 }
-.lista-itens-scroll-v2 { flex: 1; overflow-y: auto; padding: 5px; }
+.lista-itens-scroll-v2 { flex: 1; overflow-y: auto; padding: 1px; }
 .item-linha-compacta {
-    display: flex; align-items: center; gap: 10px; padding: 8px;
+    display: flex; align-items: center; gap: 5px; padding: 4px;
     border-radius: 6px; cursor: pointer; border: 1px solid transparent; margin-bottom: 4px;
 }
 .item-linha-compacta:hover { background: #f1f2f6; }
-.item-linha-compacta.selecionado { background: #f4ecf7; border-color: #8e44ad; }
+.item-linha-compacta.selecionado { background: #f4ecf7; border-color: #5c44ad; }
 
-.slot-icone-mini { width: 40px; height: 40px; background: #eee; border-radius: 4px; display: flex; align-items: center; justify-content: center; }
-.img-inv-mini { width: 32px; height: 32px; object-fit: contain; }
+.slot-icone-mini { width: 37px; height: 37px; background: #eee; border-radius: 4px; display: flex; align-items: center; justify-content: center; }
+.img-inv-mini { width: 30px; height: 30px; object-fit: contain; }
 .info-inv-mini { display: flex; flex-direction: column; }
-.nome-inv-mini { font-size: 0.8em; font-weight: bold; color: #2d3436; }
-.nv-inv-mini { font-size: 0.7em; color: #8e44ad; font-weight: bold; }
+.nome-inv-mini { font-size: 0.75em; font-weight: bold; color: #2d3436; }
+.nv-inv-mini { font-size: 0.65em; color: #8e44ad; font-weight: bold; }
 
 /* Painel Direito (Foco) */
 .painel-encantamento-foco { flex: 1; background: #fff; border-radius: 8px; border: 1px solid #dcdde1; display: flex; align-items: top; justify-content: center; position: relative; }
@@ -2286,18 +2296,219 @@ h4 {
 .icone-espera { font-size: 4em; display: block; opacity: 0.3; }
 
 /* Interface de Encantamento Ativa */
-.interface-mistica-ativa { display: flex; align-items: flex-start; gap: 20px; padding: 10px; }
-
+.interface-mistica-ativa {
+    display: flex;
+    flex-direction: column; /* FORÇA COLUNA NO DESKTOP */
+    align-items: center;    /* CENTRALIZA TUDO */
+    gap: 20px;
+    padding: 20px;
+    width: 100%;
+    box-sizing: border-box;
+    /* Removemos qualquer configuração que forçava "lado a lado" */
+}
 /* Reuso do Estilo Carta Mistica */
-.moldura-carta-rpg { width: 260px; border: 6px solid #f1f2f6; border-radius: 12px; box-shadow: 0 10px 20px rgba(0,0,0,0.05); }
-.imagem-carta-foco { height: 140px; background: #f8f9fa; display: flex; align-items: center; justify-content: center; }
-.img-carta { width: 90px; }
+.moldura-carta-rpg {
+    display: flex;
+    flex-direction: column !important; /* Força vertical */
+    width: 100%;
+    max-width: 480px; /* Um pouco mais largo para caber 3 colunas de números */
+    background: #fff;
+    border: 1px solid #bdc3c7;
+    border-radius: 10px;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.08);
+    overflow: hidden;
+    flex-shrink: 0;
+}
+.img-centro-destaque {
+    width: 100px; height: 100px;
+    object-fit: contain;
+    filter: drop-shadow(0 5px 5px rgba(0,0,0,0.5));
+    transition: transform 0.3s;
+}
+.moldura-carta-rpg:hover .img-centro-destaque { transform: scale(1.1); }
+.info-titulo-centro { text-align: center; margin-top: 10px; }
+
+.barra-nome-item {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 15px; /* Espaço entre texto e linhas */
+    padding: 5px 0; /* Altura mínima */
+}
+
+/* Cria as linhas antes e depois do texto automaticamente */
+.barra-nome-item::before,
+.barra-nome-item::after {
+    content: "";
+    height: 1px;
+    flex-grow: 1; /* Ocupa o espaço restante */
+    background: linear-gradient(90deg, transparent, #bdc3c7, transparent); /* Linha que "some" nas pontas */
+}
+.titulo-centro {
+    font-family: 'Averia Bold', serif;
+    margin: 0;
+    font-size: 1.1em;
+    color: #2c3e50;
+    text-transform: uppercase;
+    font-weight: 800;
+    line-height: 1; /* Garante que a linha de texto não fique alta */
+}
+
+.badge-tipo-centro {
+    font-size: 0.7em; background: rgba(0,0,0,0.1); color: #555;
+    padding: 2px 8px; border-radius: 10px; font-weight: bold; text-transform: uppercase;
+}
+
+.divisor-fino { height: 1px; background: #ecf0f1; width: 100%; }
+
+/* Bloco Direito: Ocupa 33% e tem 1 coluna interna */
+.coluna-simples-direita {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+.area-stats-dupla {
+    display: grid;
+    grid-template-columns: 1fr 1fr; /* Duas colunas iguais */
+    gap: 8px 20px; /* Espaço vertical 8px, horizontal 20px */
+    padding: 15px;
+    background: #fdfdfd;
+    border-top: 1px solid #f1f2f6;
+}
+
+/* Mantemos o estilo da linha igual, pois estava bom */
+.linha-stat-mini {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.8em; /* Tamanho confortável */
+    border-bottom: 1px dotted #eee;
+    padding-bottom: 3px;
+}
+
+.stat-label-box { display: flex; align-items: center; gap: 6px; overflow: hidden; }
+.ico-stat-pp { width: 14px; height: 14px; opacity: 0.8; }
+.lbl-stat { font-weight: 600; color: #7f8c8d; white-space: nowrap; text-transform: capitalize; }
+
+.stat-val-box { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+.v-old { color: #2c3e50; font-weight: bold; }
+.seta-mini { color: #bdc3c7; font-size: 0.8em; }
+.v-new { color: #27ae60; font-weight: 800; }
+.topo-imagem-centro {
+    background: url('/assets/ui/bg-mythicVillage3.png');
+    height: 180px; /* Altura fixa garante que apareça */
+    width: 100%;
+    background-size: cover; 
+    background-position: center center;
+    
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+}
+.nivel-flutuante-centro {
+    position: absolute; top: 10px; left: 10px;
+    background: #8e44ad; color: #fff; font-weight: bold;
+    padding: 2px 8px; border-radius: 4px; font-size: 0.8em;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+.box-direita-info {
+    flex: 1;
+    padding: 12px 15px;
+    display: flex;
+    flex-direction: column;
+    background: #fdfdfd;
+}
+
+.cabecalho-novo {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.titulo-novo {
+    margin: 0;
+    font-size: 1.1em;
+    color: #2c3e50;
+    text-transform: uppercase;
+    font-weight: 800;
+}
+
+.tag-tipo-novo {
+    font-size: 0.7em;
+    background: #ecf0f1;
+    color: #7f8c8d;
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-weight: bold;
+    text-transform: uppercase;
+}
+
+
+/* --- O GRID MÁGICO (4 LINHAS x 2 COLUNAS) --- */
+.grid-stats-novo {
+    display: grid;
+    grid-template-columns: 1fr 1fr; /* Duas colunas iguais */
+    grid-auto-rows: auto;          /* Linhas automáticas */
+    gap: 5px 15px;                 /* Espaço vertical 5px, horizontal 15px */
+}
+
+.celula-stat {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.8em;
+    border-bottom: 1px dashed #e0e0e0;
+    padding-bottom: 2px;
+}
+
+.stat-nome-box {
+    display: flex; align-items: center; gap: 5px; color: #555;
+}
+.icon-stat-mini { width: 14px; height: 14px; opacity: 0.7; }
+.texto-stat { font-weight: 600; text-transform: capitalize; }
+
+.stat-valores-box {
+    font-weight: bold; color: #2c3e50; display: flex; gap: 5px;
+}
+.seta-up { color: #ccc; font-size: 0.8em; }
+.v-novo { color: #27ae60; } /* Verde para o valor novo */
+
+.box-esquerda-img {
+    width: 140px; /* Largura fixa da imagem */
+    min-width: 140px;
+    background-size: cover;
+    background-position: center;
+    border-right: 1px solid #bdc3c7;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.img-destaque-nova {
+    width: 80%;
+    height: 80%;
+    object-fit: contain;
+    filter: drop-shadow(0 5px 5px rgba(0,0,0,0.5));
+    transition: transform 0.3s;
+}
+.imagem-carta-foco { height: 110px; background: #f8f9fa; display: flex; align-items: center; justify-content: center; }
+.img-carta { width: 100px; }
 .corpo-carta { padding: 10px; text-align: center; }
 .titulo-carta { font-size: 1em; }
 .up-val { color: #27ae60; font-size: 0.85em; }
 
 /* Controles Laterais */
-.controles-mistica { width: 200px; display: flex; flex-direction: column; gap: 20px; padding-top: 20px; }
+.controles-mistica {
+    width: 100%;
+    max-width: 450px; /* Um pouco mais largo que a carta para ficar bonito */
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    padding-top: 10px; /* Espaço extra */
+    /* Removemos larguras fixas pequenas antigas */
+}
 .consumivel-box { background: #f8f9fa; padding: 12px; border-radius: 8px; border: 1px solid #eee; }
 .pedra-label { font-size: 0.75em; font-weight: bold; color: #8e44ad; }
 .po-info { font-size: 0.7em; margin: 10px 0 5px; color: #636e72; }
@@ -2313,36 +2524,35 @@ h4 {
 .btn-encantar-v2:active { transform: translateY(2px); box-shadow: 0 2px 0 #71368a; }
 /* --- TEXTO RPG ESTILIZADO (Adeus árvore de natal simples) --- */
 .texto-rpg {
-    font-family: 'Georgia', serif; /* Fonte mais clássica */
-    font-size: 2.5em;
-    font-weight: 900;
+    font-family: 'Georgia', serif;
+    font-size: 1.8em; /* REDUZIDO (Era 2.5em) */
+    font-weight: 800;
     transition: all 0.3s;
-    /* Adiciona uma sombra preta para destacar do fundo */
-    text-shadow: 2px 2px 0px rgba(0,0,0,0.2);
+    text-shadow: 1px 1px 0px rgba(0,0,0,0.1); /* Sombra suave, sem brilho excessivo */
 }
 
-/* Verde Mágico Brilhante */
+/* Verde mais sóbrio */
 .rpg-sucesso {
-    background: linear-gradient(to bottom, #2ecc71, #27ae60);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    filter: drop-shadow(0 0 5px rgba(46, 204, 113, 0.6));
+    color: #27ae60;
+    background: none;
+    -webkit-text-fill-color: initial; /* Remove o degradê exagerado */
+    filter: none; /* Remove o brilho neon */
 }
 
-/* Dourado/Ambar (Atenção) */
+/* Amarelo mais sóbrio */
 .rpg-atencao {
-    background: linear-gradient(to bottom, #f1c40f, #f39c12);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    filter: drop-shadow(0 0 3px rgba(241, 196, 15, 0.4));
+    color: #f39c12;
+    background: none;
+    -webkit-text-fill-color: initial;
+    filter: none;
 }
 
-/* Vermelho Sangue (Perigo) */
+/* Vermelho mais sóbrio */
 .rpg-perigo {
-    background: linear-gradient(to bottom, #e74c3c, #c0392b);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    filter: drop-shadow(0 0 2px rgba(192, 57, 43, 0.5));
+    color: #c0392b;
+    background: none;
+    -webkit-text-fill-color: initial;
+    filter: none;
 }
 
 /* --- BOTÕES DE DESCARTE --- */
@@ -2358,4 +2568,76 @@ h4 {
     font-weight: bold; cursor: pointer; box-shadow: 0 4px 0 #6c3483;
 }
 .btn-reciclar:hover { filter: brightness(1.1); transform: translateY(-2px); }
+/* =========================================================
+   CORREÇÃO RESPONSIVA - ABA DE APRIMORAMENTO (MOBILE)
+   ========================================================= */
+@media (max-width: 768px) {
+    /* 1. Transforma o container que era lado-a-lado em coluna */
+    .container-aprimoramento-v2 {
+        flex-direction: column !important; /* Força ficar um em cima do outro */
+        height: auto !important; /* Remove a altura fixa para crescer conforme precisa */
+        padding: 5px !important;
+        overflow: visible; /* Evita cortes */
+    }
+
+    /* 2. O Inventário (que estava na esquerda) vira uma caixa no topo */
+    .painel-inventario-compacto {
+        width: 100% !important; /* Ocupa a largura total do celular */
+        height: 220px !important; /* Altura fixa para você rolar os itens */
+        margin-bottom: 20px; /* Espaço para não colar na parte de baixo */
+    }
+    
+    /* 3. Ajuste nos botões de filtro de itens (Armas, Botas, etc) para não quebrar */
+    .grade-botoes-filtro {
+        grid-template-columns: repeat(8, 1fr) !important; /* Tenta manter em 1 linha ou rolar */
+        gap: 2px !important;
+        overflow-x: auto; /* Permite rolar para o lado se não couber */
+        padding-bottom: 5px !important;
+    }
+    .grade-botoes-filtro button {
+        min-width: 30px; /* Garante tamanho mínimo para o dedo */
+    }
+
+    /* 4. A Mesa de Encantamento (que estava na direita) vai para baixo */
+    .painel-encantamento-foco {
+        width: 100% !important;
+        display: block !important; /* Remove flex complexo */
+        height: auto !important;
+        padding-bottom: 20px;
+    }
+
+    /* 5. A Carta e os Controles agora ficam empilhados */
+    .interface-mistica-ativa {
+        flex-direction: column !important;
+        align-items: center !important;
+        gap: 15px;
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    /* 6. A Carta do Item */
+    .moldura-carta-rpg {
+        width: 100% !important;
+        max-width: 320px; /* Limite para não ficar gigante */
+        margin: 0 auto; /* Centraliza */
+    }
+
+    /* 7. Os Controles (Slider de Pó e Botão) */
+    .controles-mistica {
+        width: 100% !important;
+        padding: 0 10px;
+        box-sizing: border-box;
+    }
+
+    /* Botão de Ação grande para facilitar o clique */
+    .btn-encantar-v2 {
+        padding: 18px !important;
+        font-size: 1.1em !important;
+    }
+    
+    /* Estado de espera (quando não tem item selecionado) */
+    .estado-espera {
+        padding: 40px 10px;
+    }
+}
 </style>

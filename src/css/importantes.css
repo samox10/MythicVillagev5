@@ -176,7 +176,13 @@
     text-align: center; 
     width: 100%; 
 }
-
+@font-face {
+    font-family: 'Averia Bold';
+    /* O caminho ../ volta uma pasta (sai de css) e entra em assets */
+    src: url('../assets/fonts/AveriaBold.ttf') format('truetype');
+    font-weight: normal;
+    font-style: normal;
+}
 
 
 
