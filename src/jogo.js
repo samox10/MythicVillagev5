@@ -105,6 +105,8 @@ const itensIniciais = {}; tabelaItens.forEach(i => itensIniciais[i.id] = 0);
 
 // --- ESTADO DO JOGO ---
 export const jogo = reactive({
+    equipamentos: [],
+    poMistico: 0,
     tempoOciosidadeFila: 0,
     madeira: 100, comida: 100, ouro: 500, ciencia: 0, couro: 0,
     funcionarios: [],
@@ -246,9 +248,25 @@ function finalizarCraft(index) {
 
     const receita = tabelaItens.find(i => i.id === slot.item);
     if (receita) {
-        // Simplesmente entrega tudo (sem lógica de falha complexa pra simplificar o loop)
-        const qtdRecebida = slot.qtdLote * (receita.qtd || 1);
-        jogo.itens[receita.id] += qtdRecebida;
+        // Verifica se é item de Herói (gera item único com nível)
+        if (receita.categoria === 'heroi') {
+            for (let k = 0; k < slot.qtdLote; k++) {
+                // Cria uma cópia única do item
+                jogo.equipamentos.push({
+                    uid: Date.now() + Math.random(), // ID único para o sistema
+                    id: receita.id,
+                    nome: receita.nome,
+                    nivel: 0, // Começa +0
+                    tipo: receita.tipo, // Importante para o filtro
+                    categoria: 'heroi',
+                    stats: { ...receita.stats } // Copia os stats base
+                });
+            }
+        } else {
+            // Se for item comum (Aventureiro), mantém a lógica antiga de pilha
+            const qtdRecebida = slot.qtdLote * (receita.qtd || 1);
+            jogo.itens[receita.id] = (jogo.itens[receita.id] || 0) + qtdRecebida;
+        }
     }
     // Remove da lista pois acabou
     jogo.craftando.splice(index, 1);

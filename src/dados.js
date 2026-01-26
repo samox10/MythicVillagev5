@@ -1,18 +1,22 @@
+// ------------------------------------------
 // TABELA DE MINERIOS
+// ------------------------------------------
 export const tabelaMinerais = [
-  { id: 'pedra',      nome: 'Pedra',      nivel: 1,  producaoBase: 60 },  // 1/seg
-  { id: 'cobre',      nome: 'Cobre',      nivel: 2,  producaoBase: 40 }, 
-  { id: 'ferro',      nome: 'Ferro',      nivel: 4,  producaoBase: 30 }, 
-  { id: 'prata',      nome: 'Prata',      nivel: 6,  producaoBase: 20 }, 
-  { id: 'ouro_min',   nome: 'Ouro (Min)', nivel: 8,  producaoBase: 15 }, 
-  { id: 'obsidiana',  nome: 'Obsidiana',  nivel: 10, producaoBase: 10 }, 
-  { id: 'titanio',    nome: 'Titânio',    nivel: 12, producaoBase: 8 }, 
-  { id: 'diamante',   nome: 'Diamante',   nivel: 14, producaoBase: 5 }, 
-  { id: 'mithril',    nome: 'Mithril',    nivel: 16, producaoBase: 3 }, 
-  { id: 'aetherium',  nome: 'Aetherium',  nivel: 18, producaoBase: 1 }
+  { id: 'pedra',      nome: 'Pedra',      nivel: 1,  producaoBase: 60 },  // 60 por minuto
+  { id: 'cobre',      nome: 'Cobre',      nivel: 2,  producaoBase: 40 },  // 40 por minuto
+  { id: 'ferro',      nome: 'Ferro',      nivel: 4,  producaoBase: 30 },  // 30 por minuto
+  { id: 'prata',      nome: 'Prata',      nivel: 6,  producaoBase: 20 }, // 20 por minuto
+  { id: 'ouro_min',   nome: 'Ouro (Min)', nivel: 8,  producaoBase: 15 }, // 15 por minuto
+  { id: 'obsidiana',  nome: 'Obsidiana',  nivel: 10, producaoBase: 10 }, // 10 por minuto
+  { id: 'titanio',    nome: 'Titânio',    nivel: 12, producaoBase: 8 }, // 8 por minuto
+  { id: 'diamante',   nome: 'Diamante',   nivel: 14, producaoBase: 5 }, // 5 por minuto
+  { id: 'mithril',    nome: 'Mithril',    nivel: 16, producaoBase: 3 }, // 3 por minuto
+  { id: 'aetherium',  nome: 'Aetherium',  nivel: 18, producaoBase: 1 } // 1 por minuto
 ];
 
+// ------------------------------------------
 // TABELA DE ITENS CRAFTÁVEIS
+// ------------------------------------------
 
 export const tabelaItens = [
   // --- ARMAS ---
@@ -74,3 +78,17 @@ export const tabelaItens = [
     stats: { ataque: 2, mana: 5  }
   }
 ];
+// ------------------------------------------
+// FIM TABELA DE ITENS CRAFTÁVEIS
+// ------------------------------------------
+
+// ------------------------------------------
+// SISTEMA DE APRIMORAMENTO DE ITENS
+// ------------------------------------------
+export const DB_PEDRAS = {
+    nivel: [
+        { id: 'pedra_up_comum', nome: 'Pedra de Afiar Comum', tier: 'comum', min: 0, max: 4, chanceBase: 100 }, 
+        { id: 'pedra_up_rara', nome: 'Pedra de Afiar Rara', tier: 'rara', min: 4, max: 8, chanceBase: 70 }, 
+        { id: 'pedra_up_mitica', nome: 'Pedra de Afiar Mítica', tier: 'mitica', min: 8, max: 10, chanceBase: 40 }
+    ]
+};

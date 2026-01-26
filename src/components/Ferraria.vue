@@ -1,8 +1,7 @@
 <script setup>
 import { ref, computed, reactive, onMounted, onUnmounted, watch} from 'vue';
 import { jogo, acoes, dadosItens, obterBuffRaca, mostrarAviso } from '../jogo.js';
-
-// --- SISTEMA DE APRIMORAMENTO ---
+import { DB_PEDRAS } from '../dados.js'; // Importa a tabela de pedras
 
 // --- ESTADO LOCAL ---
 const filtroTipo = ref('todos');
@@ -27,39 +26,52 @@ const pedraAutomatica = computed(() => {
 const qtdPoUsado = ref(0);
 const modalSelecaoAberto = ref(null); 
 
-// --- CONFIGURAÇÃO SIMPLIFICADA (SEM STATS) ---
-const DB_PEDRAS = {
-    nivel: [
-        { id: 'pedra_up_comum', nome: 'Pedra de Afiar Comum', tier: 'comum', min: 0, max: 4, chanceBase: 100 },
-        { id: 'pedra_up_rara', nome: 'Pedra de Afiar Rara', tier: 'rara', min: 4, max: 8, chanceBase: 70 }, 
-        { id: 'pedra_up_mitica', nome: 'Pedra de Afiar Mítica', tier: 'mitica', min: 8, max: 10, chanceBase: 40 }
-    ]
-    // A lista 'stats' foi removida daqui!
-};
-
-// Inventário Simulado (Mantido para testes)
-const inventarioInstancias = ref([
-    { uid: 1, id: 'espada_cobre', nome: 'Espada de Cobre', nivel: 0, stats: { ataque: 10 } },
-    { uid: 2, id: 'armadura_couro', nome: 'Peitoral de Couro', nivel: 3, stats: { defesa: 15 } },
-    { uid: 3, id: 'espada_ferro', nome: 'Espada da Ruína Celestial', nivel: 6, stats: { defesa: 3, evasao: 2, vida: 10, ataque: 1, critico: 1, 
-      danoCritico: 10, magia: 1, defesaMagica: 2 } }
-]);
-
-// Filtro Inteligente do Inventário (Esquerda)
 const inventarioFiltrado = computed(() => {
-    return inventarioInstancias.value.filter(instancia => {
-        // Busca os dados originais para saber se é arma, armadura, etc.
-        const dadosOriginais = dadosItens.find(i => i.id === instancia.id);
-        if (!dadosOriginais) return false;
+    // Se a lista não existir ainda no save, retorna vazio para não dar erro
+    if (!jogo.equipamentos) return [];
+    
+    return jogo.equipamentos.filter(instancia => {
+        // 1. Regra de Ouro: Só mostra itens de Herói
+        if (instancia.categoria !== 'heroi') return false;
 
-        // Aplica o filtro
-        if (filtroInv.value !== 'todos') {
-            if (dadosOriginais.tipo !== filtroInv.value) return false;
-        }
+        // 2. Filtro de Tipo (Arma, Elmo, etc)
+        if (filtroInv.value !== 'todos' && instancia.tipo !== filtroInv.value) return false;
+        
         return true;
     });
 });
+// --- NOVAS AÇÕES: LIXEIRA E RECICLAGEM ---
+const removerDoInventario = (uidAlvo) => {
+    const index = jogo.equipamentos.findIndex(i => i.uid === uidAlvo);
+    if (index !== -1) jogo.equipamentos.splice(index, 1);
+    itemParaAprimorar.value = null; // Limpa a seleção
+};
 
+const reciclarItem = () => {
+    const item = itemParaAprimorar.value;
+    if (!item) return;
+
+    // Regra: Mínimo +5 para dar pó
+    if (item.nivel < 5) {
+        mostrarAviso("Item Fraco", "Apenas itens +5 ou superior geram Pó Místico.");
+        return;
+    }
+
+    // Fórmula: (Nível do Item * Nível Upgrade) / 2
+    const ganhoPo = Math.floor(((item.nivelItem || 1) * item.nivel) / 2);
+    
+    jogo.poMistico += ganhoPo;
+    
+    removerDoInventario(item.uid);
+    mostrarAviso("Reciclado!", `Você obteve ${ganhoPo} gramas de Pó Místico.`, "sucesso");
+};
+
+const lixeiraItem = () => {
+    if (!itemParaAprimorar.value) return;
+    if (confirm("Tem certeza? O item será destruído para sempre sem dar nada em troca.")) {
+        removerDoInventario(itemParaAprimorar.value.uid);
+    }
+};
 // Pedras Disponíveis (Agora só mostra as de nível)
 const minhasPedras = computed(() => {
     return DB_PEDRAS.nivel;
@@ -429,6 +441,7 @@ const formatarTempoFila = (s) => {
     const m = Math.floor((final % 3600) / 60);
     return `${h}h${String(m).padStart(2, '0')}min`;
 };
+
 
 // Cores de Tier (mesma da Taverna)
 const corTier = (t) => ({'F':'#8A8A8A','E':'#659665','D':'#71c404','C':'#475fad','B':'#0233d1','A':'#8e44ad','S':'#f1c40f','SS':'#0fbdd1'}[t] || '#000');
@@ -883,11 +896,30 @@ const corTier = (t) => ({'F':'#8A8A8A','E':'#659665','D':'#71c404','C':'#475fad'
                 <div class="acao-box-compacta">
                     <div class="chance-display-horizontal">
                         <span class="c-txt">SUCESSO:</span>
-                        <span class="c-num">{{ chanceSucessoAtual.toFixed(0) }}%</span>
+                        <span class="c-num texto-rpg"
+                            :class="{ 
+                                'rpg-sucesso': chanceSucessoAtual >= 80, 
+                                'rpg-atencao': chanceSucessoAtual >= 40 && chanceSucessoAtual < 80, 
+                                'rpg-perigo': chanceSucessoAtual < 40 
+                            }">
+                            {{ chanceSucessoAtual.toFixed(0) }}%
+                        </span>
                     </div>
                     <button class="btn-encantar-v2" :disabled="!pedraAutomatica" @click="realizarAprimoramento">
                         ENCANTAR
                     </button>
+                    <div class="painel-descarte">
+                        <button class="btn-lixeira" @click="lixeiraItem" title="Jogar fora (Destruir)">
+                            🗑️
+                        </button>
+                        
+                        <button v-if="itemParaAprimorar && itemParaAprimorar.nivel >= 5" 
+                                class="btn-reciclar" 
+                                @click="reciclarItem" 
+                                title="Reciclar em Pó Místico">
+                            ♻️ Extrair Pó
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -2279,5 +2311,51 @@ h4 {
     border-radius: 8px; font-weight: bold; cursor: pointer; box-shadow: 0 4px 0 #71368a;
 }
 .btn-encantar-v2:active { transform: translateY(2px); box-shadow: 0 2px 0 #71368a; }
+/* --- TEXTO RPG ESTILIZADO (Adeus árvore de natal simples) --- */
+.texto-rpg {
+    font-family: 'Georgia', serif; /* Fonte mais clássica */
+    font-size: 2.5em;
+    font-weight: 900;
+    transition: all 0.3s;
+    /* Adiciona uma sombra preta para destacar do fundo */
+    text-shadow: 2px 2px 0px rgba(0,0,0,0.2);
+}
 
+/* Verde Mágico Brilhante */
+.rpg-sucesso {
+    background: linear-gradient(to bottom, #2ecc71, #27ae60);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 0 5px rgba(46, 204, 113, 0.6));
+}
+
+/* Dourado/Ambar (Atenção) */
+.rpg-atencao {
+    background: linear-gradient(to bottom, #f1c40f, #f39c12);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 0 3px rgba(241, 196, 15, 0.4));
+}
+
+/* Vermelho Sangue (Perigo) */
+.rpg-perigo {
+    background: linear-gradient(to bottom, #e74c3c, #c0392b);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 0 2px rgba(192, 57, 43, 0.5));
+}
+
+/* --- BOTÕES DE DESCARTE --- */
+.painel-descarte {
+    display: flex; gap: 10px; margin-top: 10px; justify-content: flex-end; width: 100%;
+}
+.btn-lixeira {
+    background: #7f8c8d; border: none; padding: 10px; border-radius: 6px; cursor: pointer;
+}
+.btn-reciclar {
+    background: linear-gradient(45deg, #8e44ad, #9b59b6);
+    color: white; border: none; padding: 10px 15px; border-radius: 6px; 
+    font-weight: bold; cursor: pointer; box-shadow: 0 4px 0 #6c3483;
+}
+.btn-reciclar:hover { filter: brightness(1.1); transform: translateY(-2px); }
 </style>
