@@ -2,161 +2,118 @@
 import { ref, computed, reactive, onMounted, onUnmounted, watch} from 'vue';
 import { jogo, acoes, dadosItens, obterBuffRaca, mostrarAviso } from '../jogo.js';
 
+// --- SISTEMA DE APRIMORAMENTO ---
+
 // --- ESTADO LOCAL ---
 const filtroTipo = ref('todos');
 const filtroStat = ref('todos');
-const filtroNivel = ref('todos'); // Apenas visual por enquanto
-const abaAtual = ref('fabricacao'); // Controla qual aba está visível
+const filtroNivel = ref('todos'); 
+const abaAtual = ref('fabricacao'); 
 const filtroCategoria = ref('aventureiro');
 const mostrarBotaoTopo = ref(false);
-// --- Adicione isso logo abaixo das outras variáveis 'ref' ou 'const' ---
-const itemSelecionado = ref(null); // Guarda qual item estamos vendo no modal
-// Adicione isso junto com as outras variáveis 'ref'
-const slotFocado = ref(null); // Guarda qual slot está mostrando os detalhes (0, 1 ou 2)
-const modalRelatorioInterrupcao = ref(null); // Guarda a lista de itens afetados pela demissão
-// --- SISTEMA DE APRIMORAMENTO ---
+const itemSelecionado = ref(null); 
+const slotFocado = ref(null); 
+const modalRelatorioInterrupcao = ref(null); 
 
-// 1. Variáveis de Controle Visual
+// --- NOVO: ESTADO DA ABA DE APRIMORAMENTO ---
+const filtroInv = ref('arma'); // Filtro da lista da esquerda (inventário)
 const itemParaAprimorar = ref(null);
-const pedraSelecionada = ref(null);
+const pedraAutomatica = computed(() => {
+    if (!itemParaAprimorar.value) return null;
+    const nv = itemParaAprimorar.value.nivel;
+    // Busca na tabela DB_PEDRAS qual pedra serve para este nível
+    return DB_PEDRAS.nivel.find(p => nv >= p.min && nv < p.max);
+});
 const qtdPoUsado = ref(0);
-const modalSelecaoAberto = ref(null); // 'item' ou 'pedra'
+const modalSelecaoAberto = ref(null); 
 
-// 2. Definição das Regras das Pedras (Configuração)
+// --- CONFIGURAÇÃO SIMPLIFICADA (SEM STATS) ---
 const DB_PEDRAS = {
     nivel: [
         { id: 'pedra_up_comum', nome: 'Pedra de Afiar Comum', tier: 'comum', min: 0, max: 4, chanceBase: 100 },
-        { id: 'pedra_up_rara', nome: 'Pedra de Afiar Rara', tier: 'rara', min: 4, max: 8, chanceBase: 70 }, // Ex: 70% no +5
+        { id: 'pedra_up_rara', nome: 'Pedra de Afiar Rara', tier: 'rara', min: 4, max: 8, chanceBase: 70 }, 
         { id: 'pedra_up_mitica', nome: 'Pedra de Afiar Mítica', tier: 'mitica', min: 8, max: 10, chanceBase: 40 }
-    ],
-    stats: [
-        { id: 'pedra_vida', nome: 'Rubi de Vida', tipoStat: 'vida', valor: 10, tier: 'comum' },
-        { id: 'pedra_fogo', nome: 'Brasa Eterna', tipoStat: 'res_fogo', valor: 5, tier: 'rara' },
-        // Adicione outras aqui...
     ]
+    // A lista 'stats' foi removida daqui!
 };
 
-// 3. Inventário Simulado (PARA TESTE - Já que seus itens atuais são apenas números)
-// Futuramente, isso virá de jogo.mochila ou algo assim
+// Inventário Simulado (Mantido para testes)
 const inventarioInstancias = ref([
-    { uid: 1, id: 'espada_cobre', nome: 'Espada de Cobre', nivel: 0, falhasNivel: 0, durabilidadeMax: 100, stats: { ataque: 10 }, sockets: [], tentativasSocket: 0 },
-    { uid: 2, id: 'armadura_couro', nome: 'Peitoral de Couro', nivel: 3, falhasNivel: 0, durabilidadeMax: 100, stats: { defesa: 15 }, sockets: [], tentativasSocket: 0 },
-    { uid: 3, id: 'espada_ferro', nome: 'Lâmina do Herói', nivel: 6, falhasNivel: 4, durabilidadeMax: 100, stats: { ataque: 25 }, sockets: [], tentativasSocket: 0 }
+    { uid: 1, id: 'espada_cobre', nome: 'Espada de Cobre', nivel: 0, stats: { ataque: 10 } },
+    { uid: 2, id: 'armadura_couro', nome: 'Peitoral de Couro', nivel: 3, stats: { defesa: 15 } },
+    { uid: 3, id: 'espada_ferro', nome: 'Espada da Ruína Celestial', nivel: 6, stats: { defesa: 3, evasao: 2, vida: 10, ataque: 1, critico: 1, 
+      danoCritico: 10, magia: 1, defesaMagica: 2 } }
 ]);
 
-// 4. Inventário de Pedras (Simulando que você tem esses recursos)
-const minhasPedras = computed(() => {
-    // Aqui você filtraria do seu jogo.itens real. Exemplo simulado:
-    return [
-        ...DB_PEDRAS.nivel,
-        ...DB_PEDRAS.stats
-    ];
-});
+// Filtro Inteligente do Inventário (Esquerda)
+const inventarioFiltrado = computed(() => {
+    return inventarioInstancias.value.filter(instancia => {
+        // Busca os dados originais para saber se é arma, armadura, etc.
+        const dadosOriginais = dadosItens.find(i => i.id === instancia.id);
+        if (!dadosOriginais) return false;
 
-// --- CÁLCULOS E LÓGICA ---
-
-// Chance de Sucesso (Visual e Lógico)
-const chanceSucessoAtual = computed(() => {
-    if (!itemParaAprimorar.value || !pedraSelecionada.value) return 0;
-
-    // A. Lógica de Nível (+1 a +10)
-    if (pedraSelecionada.value.min !== undefined) {
-        const nivelAtual = itemParaAprimorar.value.nivel;
-        
-        // Verifica compatibilidade da pedra
-        if (nivelAtual < pedraSelecionada.value.min || nivelAtual >= pedraSelecionada.value.max) return 0;
-
-        // Base da pedra
-        let chance = pedraSelecionada.value.chanceBase;
-        
-        // Redução por nível (ex: -10% a cada nível acima do min da pedra)
-        const dif = nivelAtual - pedraSelecionada.value.min;
-        chance -= (dif * 10); 
-
-        // Bônus do Pó (Máximo 10%)
-        chance += Math.min(10, qtdPoUsado.value);
-
-        // Bônus do Ferreiro (Ex: +5% se tier S)
-        if (statsFerreiro.value) {
-            chance += (statsFerreiro.value.poderReal / 5); // Ajuste essa fórmula como preferir
+        // Aplica o filtro
+        if (filtroInv.value !== 'todos') {
+            if (dadosOriginais.tipo !== filtroInv.value) return false;
         }
-
-        return Math.min(100, Math.max(0, chance));
-    }
-    
-    // B. Lógica de Stats (Pedras de Atributo)
-    // Exemplo: Mítica 50%, Comum 90%
-    let chanceStat = pedraSelecionada.value.tier === 'mitica' ? 50 : 85;
-    if (statsFerreiro.value) chanceStat += (statsFerreiro.value.poderReal / 5);
-    return Math.min(100, chanceStat);
+        return true;
+    });
 });
 
-// AÇÃO PRINCIPAL: APRIMORAR
+// Pedras Disponíveis (Agora só mostra as de nível)
+const minhasPedras = computed(() => {
+    return DB_PEDRAS.nivel;
+});
+
+// Chance de Sucesso (Simplificada)
+const chanceSucessoAtual = computed(() => {
+    if (!itemParaAprimorar.value || !pedraAutomatica.value) return 0;
+
+    const nivelAtual = itemParaAprimorar.value.nivel;
+    const pedra = pedraAutomatica.value; // <--- Correção aqui
+    
+    // Base da pedra
+    let chance = pedra.chanceBase;
+    
+    // Dificuldade: reduz chance conforme o nível sobe dentro do tier da pedra
+    const dif = nivelAtual - pedra.min;
+    chance -= (dif * 10); 
+
+    // Bônus (Pó + Ferreiro)
+    chance += Math.min(10, qtdPoUsado.value);
+    if (statsFerreiro.value) {
+        chance += (statsFerreiro.value.poderReal / 5);
+    }
+
+    return Math.min(100, Math.max(0, chance));
+});
+
+// AÇÃO DE APRIMORAR (SEM QUEBRA DE DURABILIDADE)
 const realizarAprimoramento = () => {
     const item = itemParaAprimorar.value;
-    const pedra = pedraSelecionada.value;
+    const pedra = pedraAutomatica.value; // <--- Correção aqui
 
     if (!item || !pedra) return;
     
-    // Validação de segurança
-    if (item.falhasNivel >= 5) {
-        alert("Este item está muito danificado para ser aprimorado (+5 Falhas).");
-        return;
-    }
-
     const roll = Math.random() * 100;
     const sucesso = roll <= chanceSucessoAtual.value;
 
-    // --- CENÁRIO 1: SUBIR NÍVEL ---
-    if (pedra.min !== undefined) {
-        if (sucesso) {
-            item.nivel++;
-            // Aumenta stats base (Exemplo simples)
-            Object.keys(item.stats).forEach(k => item.stats[k] += 2); // +2 por nível
-            mostrarAviso("SUCESSO!", `O item subiu para +${item.nivel}!`);
-        } else {
-            item.falhasNivel++;
-            mostrarAviso("FALHA", "O aprimoramento falhou. Cuidado com a durabilidade.");
-            
-            // Penalidade crítica
-            if (item.falhasNivel >= 5) {
-                item.durabilidadeMax = Math.floor(item.durabilidadeMax / 2);
-                mostrarAviso("QUEBRA PARCIAL", "O item atingiu 5 falhas! Durabilidade reduzida.");
-            }
+    if (sucesso) {
+        item.nivel++;
+        // Melhora os status (Exemplo: +2 em tudo)
+        if (item.stats) {
+            Object.keys(item.stats).forEach(k => item.stats[k] += 2);
         }
-    } 
-    // --- CENÁRIO 2: ADICIONAR STAT ---
-    else {
-        // Verifica limites
-        if (item.tentativasSocket >= 7) {
-            alert("Limite de tentativas de encanto atingido (7/7).");
-            return;
-        }
-        if (item.sockets.length >= 5) {
-            alert("O item já tem 5 pedras acopladas.");
-            return;
-        }
-
-        item.tentativasSocket++;
-
-        if (sucesso) {
-            item.sockets.push({ nome: pedra.nome, stat: pedra.tipoStat, val: pedra.valor });
-            
-            // Aplica o stat no item
-            if (!item.stats[pedra.tipoStat]) item.stats[pedra.tipoStat] = 0;
-            item.stats[pedra.tipoStat] += pedra.valor;
-
-            mostrarAviso("ENCANTO SUCESSO", `Pedra acoplada! +${pedra.valor} ${pedra.tipoStat}`);
-        } else {
-            mostrarAviso("FALHA DE ENCANTO", "A pedra se partiu ao tentar acoplar.");
-        }
+        mostrarAviso("SUCESSO!", `O item brilhou! Agora é +${item.nivel}.`, 'sucesso');
+    } else {
+        mostrarAviso("FALHA", "A pedra se desfez, mas o item está seguro.");
     }
 
-    // Consome recursos (Simulado)
-    pedraSelecionada.value = null; // Remove a pedra do slot
+    // Reseta o pó usado, mas mantemos o item selecionado para tentar de novo
     qtdPoUsado.value = 0;
 };
 
+// --- CÁLCULOS E LÓGICA ---
 // Função para abrir/fechar o balão ao clicar no quadrado
 const toggleSlot = (index) => {
     if (slotFocado.value === index) {
@@ -843,172 +800,99 @@ const corTier = (t) => ({'F':'#8A8A8A','E':'#659665','D':'#71c404','C':'#475fad'
         {{ tooltipData.texto }}
     </div>
     </div>
-    <div v-if="abaAtual === 'aprimoramento'">
-        <div class="painel-controle-ferraria">
-            
-            <div v-if="ferreiroAtivo" class="card-funcionario ferreiro-ativo" :style="{ borderColor: corTier(ferreiroAtivo.tier) }">
-                
-                <div class="card-topo" :style="{ backgroundColor: corTier(ferreiroAtivo.tier) }">
-                    <div class="topo-esquerda">
-                        <span class="tier-badge">{{ ferreiroAtivo.tier }}</span>
-                        <span class="card-nome">{{ ferreiroAtivo.nome }}</span>
-                    </div>
-                    
-                    <div class="molde-icone-prof">
-                        <img src="/assets/ui/i_ferreiro.png" class="img-prof-inner" title="Ferreiro">
-                    </div>
-                </div>
-
-                <div class="card-mid">
-                    <div class="avatar-box">
-                         <img :src="`/assets/faces/${ferreiroAtivo.raca}/${ferreiroAtivo.imagem}.png`" class="avatar-func">
-                    </div>
-
-                    <div class="tabela-dados-func">
-                        <div class="linha-dado">
-                            <span class="dado-label">Profissão:</span>
-                            <span class="dado-valor">Ferreiro</span>
-                        </div>
-                        <div class="linha-dado">
-                            <span class="dado-label">Raça:</span>
-                            <span class="dado-valor capitalize">{{ ferreiroAtivo.raca }}</span>
-                        </div>
-                        <div class="linha-dado">
-                            <span class="dado-label">Sexo:</span>
-                            <span class="dado-valor">{{ ferreiroAtivo.sexo === 'masculino' ? 'Masculino' : 'Feminino' }}</span>
+    <div v-if="abaAtual === 'aprimoramento'" class="container-aprimoramento-v2">
+    
+    <div class="painel-inventario-compacto">
+        <div class="topo-filtro-inv">
+            <h4 class="titulo-sessao">🎒 SEUS ITENS</h4>
+            <div class="grade-botoes-filtro">
+    <button :class="{ ativo: filtroInv === 'arma' }" @click="filtroInv = 'arma'" title="Armas">⚔️</button>
+    <button :class="{ ativo: filtroInv === 'elmo' }" @click="filtroInv = 'elmo'" title="Elmos">🪖</button>
+    <button :class="{ ativo: filtroInv === 'armadura' }" @click="filtroInv = 'armadura'" title="Armaduras">👕</button>
+    <button :class="{ ativo: filtroInv === 'calca' }" @click="filtroInv = 'calca'" title="Calças">👖</button>
+    
+    <button :class="{ ativo: filtroInv === 'luva' }" @click="filtroInv = 'luva'" title="Luvas">🧤</button>
+    <button :class="{ ativo: filtroInv === 'bota' }" @click="filtroInv = 'bota'" title="Botas">👢</button>
+    <button :class="{ ativo: filtroInv === 'anel' }" @click="filtroInv = 'anel'" title="Anéis">💍</button>
+    <button :class="{ ativo: filtroInv === 'colar' }" @click="filtroInv = 'colar'" title="Colares">📿</button>
 </div>
-                        <div class="linha-dado">
-                            <span class="dado-label">Salário:</span>
-                            <span class="dado-valor">
-                                {{ formatarNumero(ferreiroAtivo.salario) }} 
-                                <img src="/assets/ui/icone_goldC.png" class="tiny-coin">
-                            </span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="rodape-card">
-                    <div class="info-produtividade">
-                        Maestria da forja +<span class="verde">{{ statsFerreiro.tempo }}%</span>
-                    </div>
-                    <div class="frase-efeito">
-                        "{{ ferreiroAtivo.frase || 'Pronto para forjar!' }}"
-                    </div>
-                </div>
-            </div>
-            <div v-else class="card-funcionario vazio-ferreiro-card">
-                 <div class="card-topo vazio-topo"><span class="card-nome">Sem Ferreiro</span></div>
-                  <div class="card-mid"><span style="padding:20px;">Aprimoramento Bloqueado</span></div>
-            </div>
-
-
-            <div class="linha-divisoria"></div>
-
-            <div class="lado-direito-aprimoramento">
-                
-                <h4 class="titulo-bancada">✨ Bancada Rúnica</h4>
-
-                <div class="slots-bancada-wrapper">
-                    
-                    <div class="slot-group">
-                        <div class="slot-aprimoramento" 
-                             :class="{ 'vazio': !itemParaAprimorar }"
-                             @click="modalSelecaoAberto = 'item'">
-                            
-                            <img v-if="itemParaAprimorar" :src="(dadosItens.find(i=>i.id===itemParaAprimorar.id)||{}).img" class="img-slot-grande">
-                            <span v-else class="placeholder-slot">⚔️</span>
-                            
-                            <div v-if="itemParaAprimorar" class="tag-nivel-slot">+{{ itemParaAprimorar.nivel }}</div>
-                        </div>
-                        <span class="label-slot">Item</span>
-                    </div>
-
-                    <div class="seta-bancada">➡</div>
-
-                    <div class="slot-group">
-                        <div class="slot-aprimoramento" 
-                             :class="{ 'vazio': !pedraSelecionada, 'pedra': pedraSelecionada }"
-                             @click="modalSelecaoAberto = 'pedra'">
-                            
-                            <div v-if="pedraSelecionada" class="pedra-visual">💎</div>
-                            <span v-else class="placeholder-slot">💠</span>
-                        </div>
-                        <span class="label-slot">Pedra</span>
-                    </div>
-
-                </div>
-
-                <div class="painel-info-aprimoramento">
-                    
-                    <div class="controle-po" v-if="pedraSelecionada && pedraSelecionada.min !== undefined">
-                        <span class="po-label">Pó Mágico:</span>
-                        <input type="range" v-model.number="qtdPoUsado" min="0" max="10" class="slider-po">
-                        <span class="po-valor">+{{ qtdPoUsado }}%</span>
-                    </div>
-
-                    <button class="btn-aprimorar" 
-                            :disabled="!itemParaAprimorar || !pedraSelecionada || !ferreiroAtivo"
-                            @click="realizarAprimoramento">
-                        
-                        <div class="btn-content">
-                            <span>APRIMORAR</span>
-                            <span class="chance-tag" :class="{'alta': chanceSucessoAtual > 70, 'baixa': chanceSucessoAtual < 40}">
-                                {{ chanceSucessoAtual.toFixed(0) }}% Chance
-                            </span>
-                        </div>
-                    </button>
-                    
-                    <div class="aviso-risco" v-if="itemParaAprimorar && itemParaAprimorar.falhasNivel > 0">
-                        ⚠️ Atenção: Item com {{ itemParaAprimorar.falhasNivel }}/5 falhas.
-                    </div>
-
-                </div>
-
-            </div>
         </div>
 
-        <div v-if="modalSelecaoAberto" class="modal-overlay" @click.self="modalSelecaoAberto = null">
-            <div class="modal-content-forja">
-                <div class="alert-header">
-                    <h3>Selecione {{ modalSelecaoAberto === 'item' ? 'o Equipamento' : 'a Pedra' }}</h3>
-                    <button @click="modalSelecaoAberto = null">✖</button>
+        <div class="lista-itens-scroll-v2">
+            <div v-for="item in inventarioFiltrado" :key="item.uid" 
+                 class="item-linha-compacta"
+                 :class="{ 'selecionado': itemParaAprimorar && itemParaAprimorar.uid === item.uid }"
+                 @click="itemParaAprimorar = item">
+                
+                <div class="slot-icone-mini">
+                    <img :src="(dadosItens.find(i=>i.id===item.id)||{}).img" class="img-inv-mini">
                 </div>
                 
-                <div class="lista-receitas-scroll">
+                <div class="info-inv-mini">
+                    <span class="nome-inv-mini">{{ item.nome }}</span>
+                    <span class="nv-inv-mini">Nível +{{ item.nivel }}</span>
+                </div>
+            </div>
+            
+            <div v-if="inventarioFiltrado.length === 0" class="aviso-vazio">Vazio</div>
+        </div>
+    </div>
+
+    <div class="painel-encantamento-foco">
+        <div v-if="!itemParaAprimorar" class="estado-espera">
+            <span class="icone-espera">⚒️</span>
+            <p>Selecione um item para começar</p>
+        </div>
+
+        <div v-else class="interface-mistica-ativa">
+            <div class="moldura-carta-rpg">
+                <div class="topo-carta">
+                    <span class="raridade-label">Aprimoramento</span>
+                    <div class="cristal-nivel">+{{ itemParaAprimorar.nivel }}</div>
+                </div>
+
+                <div class="imagem-carta-foco">
+                    <div class="aura-magica"></div>
+                    <img :src="(dadosItens.find(i=>i.id===itemParaAprimorar.id)||{}).img" class="img-carta">
+                </div>
+
+                <div class="corpo-carta">
+                    <h3 class="titulo-carta">{{ itemParaAprimorar.nome }}</h3>
+                    <div class="divisor-ornado"></div>
+                    <div v-if="itemParaAprimorar.stats" class="lista-atributos-carta">
+                        <div v-for="(valor, stat) in itemParaAprimorar.stats" :key="stat" class="atributo-item">
+                            <span class="at-nome">{{ stat }}</span>
+                            <span class="at-valor">{{ valor }} <span class="up-val">➜ {{ valor + 2 }}</span></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="controles-mistica">
+                <div class="consumivel-box compacta">
+                    <div class="material-header">
+                        <span class="pedra-label">{{ pedraAutomatica?.nome }}<br></span>
+                    </div>
                     
-                    <template v-if="modalSelecaoAberto === 'item'">
-                        <div v-for="item in inventarioInstancias" :key="item.uid" 
-                             class="card-light-fixed" @click="itemParaAprimorar = item; modalSelecaoAberto = null">
-                            <div class="box-img-light">
-                                <img :src="(dadosItens.find(i=>i.id===item.id)||{}).img" class="img-light-fixa">
-                                <div class="nivel-tag">+{{ item.nivel }}</div>
-                            </div>
-                            <div class="miolo-light">
-                                <span class="nome-item-light">{{ item.nome }}</span>
-                                <small>Falhas: {{ item.falhasNivel }}/5</small>
-                            </div>
-                        </div>
-                    </template>
+                    <div class="po-controle-v2">
+                        <div class="po-info">Pó Místico: <strong>+{{ qtdPoUsado }}%</strong></div>
+                        <input type="range" v-model.number="qtdPoUsado" min="0" max="10" class="slider-mistico">
+                    </div>
+                </div>
 
-                    <template v-else>
-                        <div v-for="pedra in minhasPedras" :key="pedra.id" 
-                             class="card-light-fixed" style="height: 80px;" 
-                             @click="pedraSelecionada = pedra; modalSelecaoAberto = null">
-                            <div class="box-img-light" style="width: 80px;">
-                                <div style="font-size: 2em;">💎</div>
-                            </div>
-                            <div class="miolo-light">
-                                <span class="nome-item-light">{{ pedra.nome }}</span>
-                                <small v-if="pedra.min !== undefined">Nível: +{{ pedra.min }} a +{{ pedra.max }}</small>
-                                <small v-else>Stat: {{ pedra.tipoStat }} (+{{ pedra.valor }})</small>
-                            </div>
-                        </div>
-                    </template>
-
+                <div class="acao-box-compacta">
+                    <div class="chance-display-horizontal">
+                        <span class="c-txt">SUCESSO:</span>
+                        <span class="c-num">{{ chanceSucessoAtual.toFixed(0) }}%</span>
+                    </div>
+                    <button class="btn-encantar-v2" :disabled="!pedraAutomatica" @click="realizarAprimoramento">
+                        ENCANTAR
+                    </button>
                 </div>
             </div>
         </div>
     </div>
+</div>
     <button v-if="mostrarBotaoTopo"
         class="btn-scroll-topo"
         @click="voltarAoTopo"
@@ -1318,12 +1202,6 @@ const corTier = (t) => ({'F':'#8A8A8A','E':'#659665','D':'#71c404','C':'#475fad'
    ================================================== */
 @media(max-width: 768px) {
     .painel-controle-ferraria { flex-direction: column; height: auto; }
-    
-    .capa-corpo { flex-direction: column; align-items: stretch; }
-    .capa-img-box { width: 100%; height: 100px; display: flex; justify-content: center; }
-    .capa-icon { width: auto; height: 100%; }
-    
-    .capa-stats { grid-template-columns: repeat(2, 1fr); }
     .lista-receitas-scroll {
         grid-template-columns: 1fr; /* No celular, volta para 1 coluna */
     }
@@ -1435,65 +1313,8 @@ const corTier = (t) => ({'F':'#8A8A8A','E':'#659665','D':'#71c404','C':'#475fad'
 }
 /* --- ESTILO DO CARD VAZIO (SLOT) --- */
 
-.vazio-ferreiro-card {
-    width: 100%;
-    max-width: 220px; /* Mesma largura do card ativo */
-    margin: 0 auto;
-    background: #f8f9fa; /* Fundo bem claro */
-    border: 2px dashed #bdc3c7; /* Borda tracejada (padrão de slot vazio) */
-    border-radius: 8px;
-    overflow: hidden;
-    display: flex; flex-direction: column;
-    box-shadow: none; /* Sem sombra profunda para parecer "fundo" */
-    height: 100%; /* Ocupa a mesma altura */
-    min-height: 140px; /* Garante altura mínima visual */
-}
 
-/* Topo Desativado */
-.vazio-topo {
-    background-color: #95a5a6; /* Cinza Concreto */
-    color: #ecf0f1;
-}
-.vazio-badge { background: rgba(0,0,0,0.1); }
 .grayscale { filter: grayscale(100%) opacity(0.6); }
-
-/* Avatar Vazio */
-.vazio-avatar-box {
-    width: 75px; 
-    display: flex; align-items: center; justify-content: center;
-    background: #ecf0f1;
-    border-right: 1px dashed #bdc3c7;
-}
-.avatar-vazio {
-    width: 40px; height: 40px;
-    opacity: 0.3; /* Bem transparente */
-    filter: grayscale(100%);
-}
-
-/* Dados/Mensagem Central */
-.vazio-dados {
-    display: flex; align-items: center; justify-content: center;
-    padding: 10px;
-    text-align: center;
-}
-.texto-central-vazio {
-    display: flex; flex-direction: column; gap: 4px;
-}
-.titulo-vazio {
-    font-weight: 800; color: #7f8c8d; text-transform: uppercase; font-size: 0.9em;
-}
-.subtitulo-vazio {
-    font-size: 0.75em; color: #95a5a6;
-}
-
-/* Rodapé Vazio */
-.vazio-rodape {
-    background: #ecf0f1;
-    border-top: 1px dashed #bdc3c7;
-    color: #95a5a6;
-}
-
-/* NOVOS EXEMPLOS AQUI */
 /* Container que segura os filtros */
 .lado-direito-filtros { 
     flex: 1; 
@@ -2138,19 +1959,6 @@ h4 {
     text-align: center; 
     width: 100%; 
 }
-.painel-aprimoramento {
-    padding: 40px;
-    text-align: center;
-    background: #ecf0f1;
-    border: 2px dashed #bdc3c7;
-    border-radius: 8px;
-    margin-top: 20px;
-    color: #7f8c8d;
-}
-.aviso-em-breve h3 {
-    color: #d35400;
-    margin-bottom: 10px;
-}
 /* Container dos botões Aventureiro/Heroi */
 .botoes-categoria-wrapper {
     display: flex;
@@ -2289,103 +2097,187 @@ h4 {
     transition: background 0.2s;
 }
 .btn-alert-ok:hover { background: #2c3e50; }
-/* --- ESTILOS DA BANCADA DE APRIMORAMENTO --- */
+@keyframes pulseGlow { 0% { opacity: 0.5; transform: scale(0.9); } 50% { opacity: 1; transform: scale(1.1); } 100% { opacity: 0.5; transform: scale(0.9); } }
+@keyframes pulseBar { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }
+/* --- ESTILO CARTA MÍSTICA --- */
 
-.lado-direito-aprimoramento {
-    flex: 1;
-    display: flex; flex-direction: column;
-    padding: 10px;
-    background: #fdfefe;
-    border-radius: 8px;
-    height: 100%;
-    align-items: center;
-}
-
-.titulo-bancada {
-    color: #8e44ad; /* Roxo Místico */
-    text-transform: uppercase;
-    border-bottom: 2px solid #ecf0f1;
-    width: 100%; text-align: center;
-    margin-bottom: 15px;
-}
-
-.slots-bancada-wrapper {
-    display: flex; align-items: center; gap: 15px;
-    margin-bottom: 20px;
-}
-
-.slot-group {
-    display: flex; flex-direction: column; align-items: center; gap: 5px;
-}
-
-.slot-aprimoramento {
-    width: 80px; height: 80px;
-    border: 2px dashed #bdc3c7;
-    border-radius: 12px;
-    display: flex; align-items: center; justify-content: center;
-    background: #ecf0f1;
-    cursor: pointer;
+/* 1. Moldura da Carta */
+.moldura-carta-rpg {
+    width: 280px;
+    background: #fff;
+    border: 8px solid #f1f2f6;
+    border-radius: 15px;
+    box-shadow: 0 15px 35px rgba(0,0,0,0.1), inset 0 0 10px rgba(0,0,0,0.05);
+    display: flex;
+    flex-direction: column;
     position: relative;
+    overflow: hidden;
+}
+
+.topo-carta {
+    padding: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #f8f9fa;
+}
+
+.raridade-label { font-size: 0.6em; font-weight: 800; color: #b2bec3; letter-spacing: 1px; }
+
+.cristal-nivel {
+    background: #8e44ad;
+    color: white;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-size: 0.8em;
+    font-weight: bold;
+    box-shadow: 0 0 10px rgba(142, 68, 173, 0.4);
+}
+
+/* 2. Área da Imagem */
+.imagem-carta-foco {
+    height: 160px;
+    background: radial-gradient(circle, #fdfbfb 0%, #ebedee 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    border-bottom: 2px solid #f1f2f6;
+}
+
+.aura-magica {
+    position: absolute;
+    width: 100px; height: 100px;
+    background: #9b59b6;
+    filter: blur(40px);
+    opacity: 0.15;
+    animation: pulsarAura 3s infinite alternate;
+}
+
+@keyframes pulsarAura { from { transform: scale(1); opacity: 0.1; } to { transform: scale(1.3); opacity: 0.2; } }
+
+.img-carta { width: 100px; height: 100px; object-fit: contain; z-index: 2; filter: drop-shadow(0 5px 15px rgba(0,0,0,0.1)); }
+
+/* 3. Corpo da Carta */
+.corpo-carta { padding: 15px; text-align: center; flex-grow: 1; }
+
+.titulo-carta { margin: 0; color: #2d3436; font-size: 1.1em; font-family: 'Georgia', serif; }
+
+.divisor-ornado {
+    height: 1px;
+    background: linear-gradient(to right, transparent, #dcdde1, transparent);
+    margin: 10px 0;
+}
+
+.lista-atributos-carta { display: flex; flex-direction: column; gap: 5px; }
+
+.atributo-item {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.8em;
+    color: #636e72;
+    padding: 3px 0;
+    border-bottom: 1px solid #f8f9fa;
+}
+
+.at-nome { text-transform: uppercase; font-weight: bold; font-size: 0.8em; }
+.at-valor { color: #2d3436; font-weight: bold; }
+.upgrade-ghost { color: #27ae60; font-size: 0.9em; margin-left: 5px; opacity: 0.8; }
+
+/* Container que divide Esquerda e Direita */
+.container-aprimoramento-v2 {
+    display: flex;
+    gap: 15px;
+    height: 580px;
+    background: #ecf0f1;
+    border-radius: 12px;
+    padding: 15px;
+    border: 1px solid #bdc3c7;
+}
+
+/* Painel Esquerdo (Inventário) */
+.painel-inventario-compacto {
+    width: 250px;
+    background: #fff;
+    border-radius: 8px;
+    border: 1px solid #dcdde1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.topo-filtro-inv { padding: 10px; background: #f8f9fa; border-bottom: 1px solid #eee; }
+.titulo-sessao { font-size: 0.7em; margin-bottom: 8px; color: #7f8c8d; text-align: left; }
+.grade-botoes-filtro {
+    display: grid !important;
+    grid-template-columns: repeat(4, 1fr) !important; /* Força 4 colunas */
+    gap: 6px !important; /* Espaço entre os botões */
+    padding: 5px 0 !important;
+}
+
+.grade-botoes-filtro button {
+    aspect-ratio: 1 / 1; /* Garante que os botões sejam quadrados perfeitos */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1em;
+    border: 1px solid #dcdde1;
+    background: #fff;
+    border-radius: 6px;
+    cursor: pointer;
     transition: all 0.2s;
 }
 
-.slot-aprimoramento:hover {
+.grade-botoes-filtro button.ativo {
+    background: #8e44ad;
+    color: #fff;
     border-color: #8e44ad;
-    background: #f4ecf7;
-    transform: scale(1.05);
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
 }
-
-.slot-aprimoramento.vazio .placeholder-slot { font-size: 2em; opacity: 0.3; }
-
-.img-slot-grande { width: 80%; height: 80%; object-fit: contain; filter: drop-shadow(0 4px 4px rgba(0,0,0,0.2)); }
-
-.tag-nivel-slot {
-    position: absolute; bottom: -5px; right: -5px;
-    background: #8e44ad; color: white;
-    font-size: 0.8em; font-weight: bold;
-    padding: 2px 6px; border-radius: 4px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+.lista-itens-scroll-v2 { flex: 1; overflow-y: auto; padding: 5px; }
+.item-linha-compacta {
+    display: flex; align-items: center; gap: 10px; padding: 8px;
+    border-radius: 6px; cursor: pointer; border: 1px solid transparent; margin-bottom: 4px;
 }
+.item-linha-compacta:hover { background: #f1f2f6; }
+.item-linha-compacta.selecionado { background: #f4ecf7; border-color: #8e44ad; }
 
-.seta-bancada { font-size: 1.5em; color: #bdc3c7; }
+.slot-icone-mini { width: 40px; height: 40px; background: #eee; border-radius: 4px; display: flex; align-items: center; justify-content: center; }
+.img-inv-mini { width: 32px; height: 32px; object-fit: contain; }
+.info-inv-mini { display: flex; flex-direction: column; }
+.nome-inv-mini { font-size: 0.8em; font-weight: bold; color: #2d3436; }
+.nv-inv-mini { font-size: 0.7em; color: #8e44ad; font-weight: bold; }
 
-/* Controles de Baixo */
-.painel-info-aprimoramento {
-    width: 100%;
-    display: flex; flex-direction: column; gap: 10px;
+/* Painel Direito (Foco) */
+.painel-encantamento-foco { flex: 1; background: #fff; border-radius: 8px; border: 1px solid #dcdde1; display: flex; align-items: top; justify-content: center; position: relative; }
+.estado-espera { text-align: center; color: #bdc3c7; }
+.icone-espera { font-size: 4em; display: block; opacity: 0.3; }
+
+/* Interface de Encantamento Ativa */
+.interface-mistica-ativa { display: flex; align-items: flex-start; gap: 20px; padding: 10px; }
+
+/* Reuso do Estilo Carta Mistica */
+.moldura-carta-rpg { width: 260px; border: 6px solid #f1f2f6; border-radius: 12px; box-shadow: 0 10px 20px rgba(0,0,0,0.05); }
+.imagem-carta-foco { height: 140px; background: #f8f9fa; display: flex; align-items: center; justify-content: center; }
+.img-carta { width: 90px; }
+.corpo-carta { padding: 10px; text-align: center; }
+.titulo-carta { font-size: 1em; }
+.up-val { color: #27ae60; font-size: 0.85em; }
+
+/* Controles Laterais */
+.controles-mistica { width: 200px; display: flex; flex-direction: column; gap: 20px; padding-top: 20px; }
+.consumivel-box { background: #f8f9fa; padding: 12px; border-radius: 8px; border: 1px solid #eee; }
+.pedra-label { font-size: 0.75em; font-weight: bold; color: #8e44ad; }
+.po-info { font-size: 0.7em; margin: 10px 0 5px; color: #636e72; }
+.slider-mistico { width: 100%; accent-color: #8e44ad; cursor: pointer; }
+
+.c-txt { font-size: 0.6em; font-weight: bold; color: #b2bec3; text-transform: uppercase; }
+.c-num { display: block; font-size: 2em; font-weight: 900; color: #2d3436; }
+
+.btn-encantar-v2 {
+    width: 100%; padding: 15px; background: #8e44ad; color: #fff; border: none;
+    border-radius: 8px; font-weight: bold; cursor: pointer; box-shadow: 0 4px 0 #71368a;
 }
+.btn-encantar-v2:active { transform: translateY(2px); box-shadow: 0 2px 0 #71368a; }
 
-.controle-po {
-    display: flex; align-items: center; gap: 10px;
-    background: #f8f9fa; padding: 8px; border-radius: 6px;
-}
-.slider-po { flex: 1; cursor: pointer; }
-.po-valor { font-weight: bold; color: #2980b9; }
-
-.btn-aprimorar {
-    width: 100%;
-    background: linear-gradient(to right, #8e44ad, #9b59b6);
-    color: white; border: none; padding: 12px;
-    border-radius: 8px; cursor: pointer;
-    transition: transform 0.1s;
-    box-shadow: 0 4px 0 #71368a;
-}
-.btn-aprimorar:active { transform: translateY(4px); box-shadow: none; }
-.btn-aprimorar:disabled { background: #bdc3c7; cursor: not-allowed; box-shadow: none; }
-
-.btn-content { display: flex; justify-content: space-between; align-items: center; font-weight: bold; }
-
-.chance-tag {
-    background: rgba(0,0,0,0.2);
-    padding: 2px 8px; border-radius: 4px; font-size: 0.9em;
-}
-.chance-tag.alta { color: #2ecc71; background: rgba(46, 204, 113, 0.2); }
-.chance-tag.baixa { color: #e74c3c; background: rgba(231, 76, 60, 0.2); }
-
-.aviso-risco {
-    font-size: 0.75em; color: #e67e22; text-align: center; font-weight: bold;
-}
-
-/* Ajuste no Modal para a lista de pedras */
-.pedra-visual { font-size: 2.5em; animation: luzInterna 2s infinite; }
 </style>
