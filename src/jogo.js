@@ -771,7 +771,10 @@ export const acoes = {
     },
     pesquisar(tech) { if (!tech.feito && jogo.ciencia >= tech.custo.ciencia) { jogo.ciencia -= tech.custo.ciencia; tech.feito = true; } },
     // HACKS PARA TESTES
-    hack() { jogo.ouro += 100000000; jogo.madeira += 100000; jogo.comida += 100000; jogo.couro += 1000; Object.keys(jogo.minerios).forEach(k => jogo.minerios[k] += 1000); },
+    hack() { jogo.ouro += 100000000; jogo.madeira += 100000; jogo.comida += 100000; jogo.couro += 1000; Object.keys(jogo.minerios).forEach(k => jogo.minerios[k] += 1000); jogo.poMistico = (jogo.poMistico || 0) + 1000; 
+    jogo.pedra_up_comum = (jogo.pedra_up_comum || 0) + 50;
+    jogo.pedra_up_rara = (jogo.pedra_up_rara || 0) + 50;
+    jogo.pedra_up_mitica = (jogo.pedra_up_mitica || 0) + 50;},
     // HACK DE CONSTRUÇÕES
     hackConstrucoes() {
         // Aumenta o nível dos prédios principais

@@ -86,9 +86,27 @@ export const tabelaItens = [
 // SISTEMA DE APRIMORAMENTO DE ITENS
 // ------------------------------------------
 export const DB_PEDRAS = {
-    nivel: [
-        { id: 'pedra_up_comum', nome: 'Pedra de Afiar Comum', tier: 'comum', min: 0, max: 4, chanceBase: 100 }, 
-        { id: 'pedra_up_rara', nome: 'Pedra de Afiar Rara', tier: 'rara', min: 4, max: 8, chanceBase: 70 }, 
-        { id: 'pedra_up_mitica', nome: 'Pedra de Afiar Mítica', tier: 'mitica', min: 8, max: 10, chanceBase: 40 }
+    lista: [
+        { 
+            id: 'pedra_up_comum', 
+            nome: 'Pedra do Aprendiz', 
+            tier: 'comum',
+                    // +1, +2, +3, +4,  +5,  +6, +7, +8...
+            chances: [100, 80, 70, 50,  20,  10,  0,  0,  0,  0] 
+        }, 
+        { 
+            id: 'pedra_up_rara', 
+            nome: 'Pedra do Artesão', 
+            tier: 'rara', 
+                    // +1, +2,  +3, +4,  +5,  +6,  +7, +8,  +9,  +10
+            chances: [100, 100, 90, 70,  65,  45,  30,  18,  5,  1] 
+        }, 
+        { 
+            id: 'pedra_up_mitica', 
+            nome: 'Pedra do Grão-Mestre', 
+            tier: 'mitica', 
+                    // +1, +2, +3,   +4,  +5,  +6, +7,  +8,  +9,  +10
+            chances: [100, 100, 100, 100, 100, 75,  50,  30,  20,  10] 
+        }
     ]
 };

@@ -2,7 +2,34 @@
 import { ref, computed, reactive, onMounted, onUnmounted, watch} from 'vue';
 import { jogo, acoes, dadosItens, obterBuffRaca, mostrarAviso } from '../jogo.js';
 import { DB_PEDRAS } from '../dados.js'; // Importa a tabela de pedras
+import imgAprendiz from '../assets/icons/pedra-aprendiz.png';
+import imgArtesao from '../assets/icons/pedra-artesao.png';
+import imgGraomestre from '../assets/icons/pedra-graomestre.png';
+import imgResiduo from '../assets/icons/residuo.png';
 
+// Define a classe do background baseada no nível
+const classeBackgroundTier = computed(() => {
+    if (!itemParaAprimorar.value) return 'bg-tier-comum'; // Padrão
+    
+    const nv = itemParaAprimorar.value.nivel;
+
+    if (nv >= 10) return 'bg-tier-mitico';    // +10 (Ciano/SS)
+    if (nv >= 8)  return 'bg-tier-lendario';  // +8 a +9 (Amarelo/S)
+    if (nv >= 5)  return 'bg-tier-raro';      // +5 a +7 (Roxo/A)
+    
+    return 'bg-tier-comum';                   // +0 a +4 (Branco/Padrão)
+});
+// Este mapa ajuda o código a saber qual imagem usar para qual ID de pedra
+const mapaImagensPedras = {
+    'pedra_up_comum': imgAprendiz,
+    'pedra_up_rara': imgArtesao,
+    'pedra_up_mitica': imgGraomestre
+};
+const statusChanceClass = computed(() => {
+    if (chanceSucessoAtual.value >= 75) return 'chance-alta';
+    if (chanceSucessoAtual.value >= 40) return 'chance-media';
+    return 'chance-baixa';
+});
 // --- ESTADO LOCAL ---
 const filtroTipo = ref('todos');
 const filtroStat = ref('todos');
@@ -17,12 +44,7 @@ const modalRelatorioInterrupcao = ref(null);
 // --- NOVO: ESTADO DA ABA DE APRIMORAMENTO ---
 const filtroInv = ref('arma'); // Filtro da lista da esquerda (inventário)
 const itemParaAprimorar = ref(null);
-const pedraAutomatica = computed(() => {
-    if (!itemParaAprimorar.value) return null;
-    const nv = itemParaAprimorar.value.nivel;
-    // Busca na tabela DB_PEDRAS qual pedra serve para este nível
-    return DB_PEDRAS.nivel.find(p => nv >= p.min && nv < p.max);
-});
+const pedraSelecionada = ref(null); // Qual pedra o usuário clicou
 const qtdPoUsado = ref(0);
 const modalSelecaoAberto = ref(null); 
 
@@ -51,19 +73,19 @@ const reciclarItem = () => {
     const item = itemParaAprimorar.value;
     if (!item) return;
 
-    // Regra: Mínimo +5 para dar pó
-    if (item.nivel < 5) {
-        mostrarAviso("Item Fraco", "Apenas itens +5 ou superior geram Pó Místico.");
+    // Regra: Mínimo +7 para dar pó
+    if (item.nivel < 7) {
+        mostrarAviso("Item Fraco", "Apenas itens +7 ou superior geram Resíduo de Aprimoramento.");
         return;
     }
 
     // Fórmula: (Nível do Item * Nível Upgrade) / 2
-    const ganhoPo = Math.floor(((item.nivelItem || 1) * item.nivel) / 2);
+    const ganhoPo = Math.floor((item.nivel - 5) * 8);
     
-    jogo.poMistico += ganhoPo;
+    jogo.poMistico = (jogo.poMistico || 0) + ganhoPo; // Adiciona ao inventário
     
     removerDoInventario(item.uid);
-    mostrarAviso("Reciclado!", `Você obteve ${ganhoPo} gramas de Pó Místico.`, "sucesso");
+    mostrarAviso("Reciclado!", `Você obteve ${ganhoPo} unidades de Resíduo de Aprimoramento.`, "sucesso");
 };
 
 const lixeiraItem = () => {
@@ -77,22 +99,24 @@ const minhasPedras = computed(() => {
     return DB_PEDRAS.nivel;
 });
 
-// Chance de Sucesso (Simplificada)
+// Calcula a chance baseada na PEDRA SELECIONADA e no NÍVEL DO ITEM
 const chanceSucessoAtual = computed(() => {
-    if (!itemParaAprimorar.value || !pedraAutomatica.value) return 0;
+    if (!itemParaAprimorar.value || !pedraSelecionada.value) return 0;
 
     const nivelAtual = itemParaAprimorar.value.nivel;
-    const pedra = pedraAutomatica.value; // <--- Correção aqui
-    
-    // Base da pedra
-    let chance = pedra.chanceBase;
-    
-    // Dificuldade: reduz chance conforme o nível sobe dentro do tier da pedra
-    const dif = nivelAtual - pedra.min;
-    chance -= (dif * 10); 
+    // Se o item já for +10, chance é 0
+    if (nivelAtual >= 10) return 0;
 
-    // Bônus (Pó + Ferreiro)
+    // Busca as chances da pedra selecionada
+    const tabela = pedraSelecionada.value.chances;
+    
+    // Pega a chance base para o nível atual (se não tiver no array, é 0)
+    let chance = tabela[nivelAtual] !== undefined ? tabela[nivelAtual] : 0;
+
+    // Agora: Máximo 10% (1 unidade = 1%).
     chance += Math.min(10, qtdPoUsado.value);
+
+    // Bônus do Ferreiro
     if (statsFerreiro.value) {
         chance += (statsFerreiro.value.poderReal / 5);
     }
@@ -100,28 +124,80 @@ const chanceSucessoAtual = computed(() => {
     return Math.min(100, Math.max(0, chance));
 });
 
-// AÇÃO DE APRIMORAR (SEM QUEBRA DE DURABILIDADE)
+// AÇÃO DE APRIMORAR (COM SISTEMA DE FALHA E DOWNGRADE)
 const realizarAprimoramento = () => {
     const item = itemParaAprimorar.value;
-    const pedra = pedraAutomatica.value; // <--- Correção aqui
+    const pedra = pedraSelecionada.value;
 
     if (!item || !pedra) return;
+
+    // Verifica Pedra
+    const idPedra = pedra.id;
+    if ((jogo[idPedra] || 0) < 1) {
+        mostrarAviso("Sem Pedra", "Você não possui esta pedra.");
+        return;
+    }
+
+    // Verifica Ouro
+    const custoOuro = 50 * (item.nivel + 1);
+    if (jogo.ouro < custoOuro) {
+         mostrarAviso("Sem Ouro", `Custa ${custoOuro} ouros.`);
+         return;
+    }
+
+    // Consome
+    jogo[idPedra]--;
+    jogo.ouro -= custoOuro;
     
+    // Consome Resíduo (Se tiver)
+    if (qtdPoUsado.value > 0) {
+        if ((jogo.poMistico || 0) >= qtdPoUsado.value) {
+             jogo.poMistico -= qtdPoUsado.value;
+        } else {
+            qtdPoUsado.value = 0; 
+        }
+    }
+
     const roll = Math.random() * 100;
     const sucesso = roll <= chanceSucessoAtual.value;
 
     if (sucesso) {
         item.nivel++;
-        // Melhora os status (Exemplo: +2 em tudo)
         if (item.stats) {
-            Object.keys(item.stats).forEach(k => item.stats[k] += 2);
+            Object.keys(item.stats).forEach(k => item.stats[k] += Math.ceil(item.stats[k] * 0.1));
         }
         mostrarAviso("SUCESSO!", `O item brilhou! Agora é +${item.nivel}.`, 'sucesso');
     } else {
-        mostrarAviso("FALHA", "A pedra se desfez, mas o item está seguro.");
+        // --- SISTEMA DE FALHA ---
+        let msg = "A pedra quebrou e o encantamento falhou.";
+        let tipoAviso = 'aviso';
+        
+        // --- NOVO: Recompensa de Consolação (Resíduo na Falha) ---
+        // Só gera se for falha tentando ir para +7 ou mais (ou seja, item atual >= 6)
+        if (item.nivel >= 6) {
+            // Fórmula bem menor que a reciclagem
+            // Ex: Nivel 6 (tentando +7) -> (6 - 4) * 2 = 4 resíduos.
+            const ganhoConsolacao = Math.floor((item.nivel - 4) * 2);
+            
+            if (ganhoConsolacao > 0) {
+                jogo.poMistico = (jogo.poMistico || 0) + ganhoConsolacao;
+                msg += `\nVocê recolheu ${ganhoConsolacao} resíduos dos estilhaços.`;
+            }
+        }
+
+        // Punição de Downgrade (+5 para cima)
+        if (item.nivel >= 5) {
+            item.nivel--;
+            if (item.stats) {
+                Object.keys(item.stats).forEach(k => item.stats[k] -= Math.ceil(item.stats[k] * 0.09));
+            }
+            msg = "FALHA CRÍTICA! O item perdeu poder e voltou um nível.\n" + (item.nivel >= 6 ? `(Você obteve resíduos)` : ``);
+            tipoAviso = 'erro';
+        }
+        
+        mostrarAviso(tipoAviso === 'erro' ? "QUEBROU!" : "FALHA", msg, tipoAviso);
     }
 
-    // Reseta o pó usado, mas mantemos o item selecionado para tentar de novo
     qtdPoUsado.value = 0;
 };
 
@@ -854,23 +930,35 @@ const corTier = (t) => ({'F':'#8A8A8A','E':'#659665','D':'#71c404','C':'#475fad'
     <div class="painel-encantamento-foco">
         <div v-if="!itemParaAprimorar" class="estado-espera">
             <span class="icone-espera">⚒️</span>
-            <p>Selecione um item para começar</p>
+            <p>Selecione um item para aprimorar</p>
         </div>
 
         <div v-else class="interface-mistica-ativa">
         <div class="moldura-carta-rpg card-vertical-stats">
             
-            <div class="topo-imagem-centro">
-                <div class="nivel-flutuante-centro">+{{ itemParaAprimorar.nivel }}</div>
+            <div class="topo-imagem-centro" :class="classeBackgroundTier">
+                <div class="nivel-flutuante-centro" style="z-index: 5;">+{{ itemParaAprimorar.nivel }}</div>
                 
-                <div class="item-flutuante">
+                <div class="botoes-flutuantes-esquerda" style="z-index: 5;">
+                    <button v-if="itemParaAprimorar && itemParaAprimorar.nivel >= 7" 
+                            class="btn-float-action reciclar" 
+                            @click.stop="reciclarItem" 
+                            title="Reciclar em Resíduo (+7 ou superior)">
+                        ♻️
+                    </button>
+
+                    <button class="btn-float-action lixeira" 
+                            @click.stop="lixeiraItem" 
+                            title="Jogar Fora">
+                        🗑️
+                    </button>
+                </div>
+                <div class="item-flutuante" style="z-index: 5;">
                     <img :src="(dadosItens.find(i=>i.id===itemParaAprimorar.id)||{}).img" class="img-centro-destaque">
                 </div>
+                <div class="overlay-cor-tier"></div>
             </div>
             
-            <div class="barra-nome-item">
-                <h3 class="titulo-centro">{{ itemParaAprimorar.nome }}</h3>
-            </div>
 
             <div class="divisor-fino"></div>
 
@@ -890,56 +978,69 @@ const corTier = (t) => ({'F':'#8A8A8A','E':'#659665','D':'#71c404','C':'#475fad'
                     </div>
                 </template>
             </div>
+            <div v-if="itemParaAprimorar.stats" class="lista-atributos-carta">
+   </div>
+
+<div class="selecao-pedras-container">
+    <div v-for="pedra in DB_PEDRAS.lista" :key="pedra.id"
+         class="btn-pedra-opcao"
+         :class="{ 
+             'ativo': pedraSelecionada && pedraSelecionada.id === pedra.id,
+             'sem-estoque': (jogo[pedra.id] || 0) <= 0
+         }"
+         @click="pedraSelecionada = pedra">
+         
+         <img :src="mapaImagensPedras[pedra.id]" class="img-pedra-btn">
+         
+         <div class="info-pedra-btn">
+             <span class="nome-p-btn">{{ pedra.nome }}</span>
+             <span class="qtd-p-btn">x{{ jogo[pedra.id] || 0 }}</span>
+         </div>
+         
+         <div class="chance-preview-mini" v-if="itemParaAprimorar.nivel < 10">
+             {{ pedra.chances[itemParaAprimorar.nivel] }}%
+         </div>
+    </div>
+</div>
         </div>
 
-        <div class="controles-mistica">
-            <div class="consumivel-box compacta">
-                <div class="material-header">
-                    <span class="pedra-label">
-                        <span class="icone-pedra">💎</span> {{ pedraAutomatica?.nome || 'Sem Pedra' }}
-                    </span>
-                </div>
-                
-                <div class="po-controle-v2">
-                    <div class="po-info">
-                        <span>Pó Místico</span>
-                        <strong>+{{ qtdPoUsado }}%</strong>
-                    </div>
-                    <input type="range" v-model.number="qtdPoUsado" min="0" max="10" class="slider-mistico">
-                </div>
-            </div>
+        <div class="controles-mistica-row">
+    <div class="box-controle-residuo">
+        <div class="linha-titulo-unica">
+            RESÍDUO DE APRIMORAMENTO
+        </div>
 
-            <div class="acao-box-compacta">
-                <div class="chance-display-horizontal">
-                    <span class="c-txt">CHANCE:</span>
-                    <span class="c-num texto-rpg"
-                        :class="{ 
-                            'rpg-sucesso': chanceSucessoAtual >= 80, 
-                            'rpg-atencao': chanceSucessoAtual >= 40 && chanceSucessoAtual < 80, 
-                            'rpg-perigo': chanceSucessoAtual < 40 
-                        }">
-                        {{ chanceSucessoAtual.toFixed(0) }}%
-                    </span>
-                </div>
-                
-                <button class="btn-encantar-v2" :disabled="!pedraAutomatica" @click="realizarAprimoramento">
-                    ENCANTAR
-                </button>
-                
-                <div class="painel-descarte">
-                    <button class="btn-icon-clean lixeira" @click="lixeiraItem" title="Destruir Item">
-                        🗑️
-                    </button>
-                    
-                    <button v-if="itemParaAprimorar && itemParaAprimorar.nivel >= 5" 
-                            class="btn-icon-clean reciclar" 
-                            @click="reciclarItem" 
-                            title="Extrair Pó Místico">
-                        ♻️
-                    </button>
-                </div>
+        <div class="linha-controles-central">
+            <div class="coluna-icone">
+                <img :src="imgResiduo" class="img-residuo-fixa">
+            </div>
+            <div class="coluna-slider">
+                <input type="range" v-model.number="qtdPoUsado" min="0" max="10" class="slider-mistico-novo">
+                <span class="bonus-tag-fixa">+{{ qtdPoUsado }}%</span>
             </div>
         </div>
+
+        <div class="linha-estoque-footer">
+            Disponível: <strong>{{ jogo.poMistico || 0 }}</strong>
+        </div>
+    </div>
+
+    <div class="box-execucao-final">
+        <div class="display-chance" :class="statusChanceClass">
+            <span class="num-chance">{{ chanceSucessoAtual.toFixed(0) }}%</span>
+        </div>
+
+        <button class="btn-principal-encantar" 
+                :disabled="!pedraSelecionada || !itemParaAprimorar" 
+                @click="realizarAprimoramento">
+            ENCANTAR
+        </button>
+        
+        <div>
+             &nbsp;
+        </div>
+    </div>
+</div>
     </div>
     </div>
 </div>
@@ -2230,7 +2331,7 @@ h4 {
 .container-aprimoramento-v2 {
     display: flex;
     gap: 15px;
-    height: 580px;
+    height: 680px;
     background: #ecf0f1;
     border-radius: 12px;
     padding: 15px;
@@ -2322,7 +2423,7 @@ h4 {
 .img-centro-destaque {
     width: 100px; height: 100px;
     object-fit: contain;
-    filter: drop-shadow(0 5px 5px rgba(0,0,0,0.5));
+    filter: drop-shadow(0 5px 5px rgba(0, 0, 0, 0.5));
     transition: transform 0.3s;
 }
 .moldura-carta-rpg:hover .img-centro-destaque { transform: scale(1.1); }
@@ -2397,21 +2498,115 @@ h4 {
 .v-new { color: #27ae60; font-weight: 800; }
 .topo-imagem-centro {
     background: url('/assets/ui/bg-mythicVillage3.png');
-    height: 180px; /* Altura fixa garante que apareça */
+    background-size: cover;
+    background-position: center;
+    height: 180px;
     width: 100%;
-    background-size: cover; 
-    background-position: center center;
-    
     display: flex;
     align-items: center;
     justify-content: center;
     position: relative;
+    overflow: hidden;
+    transition: all 0.5s ease;
+}
+
+/* Ajuste no Overlay para focar no centro */
+.overlay-cor-tier {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    z-index: 1;
+    pointer-events: none;
+    
+    /* MUDANÇA: 'plus-lighter' ou 'screen' faz a cor somar luz, 
+       criando um efeito de brilho intenso, não de tinta. */
+    mix-blend-mode: screen; 
+    opacity: 1; /* Opacidade alta pois o gradiente controla a suavidade */
+    transition: background 0.5s ease;
+}
+/* TIER 1: COMUM (+0 a +4) - Apenas clareia um pouco */
+.topo-imagem-centro.bg-tier-comum .overlay-cor-tier {
+    background: rgba(255, 255, 255, 0.5);
+    mix-blend-mode: multiply;
+}
+.topo-imagem-centro.bg-tier-comum {
+    border-bottom: 2px solid #000000;
+}
+
+/* TIER 2: RARO (+5 a +7) - Roxo (Sua referência exata) */
+.topo-imagem-centro.bg-tier-raro .overlay-cor-tier {
+    background: rgba(174, 0, 255, 0.40);
+    mix-blend-mode: multiply;
+}
+.topo-imagem-centro.bg-tier-raro {
+    border-bottom: 2px solid #ae00ff;
+}
+
+/* TIER 3: LENDÁRIO (+8 a +9) - Dourado Intenso */
+.topo-imagem-centro.bg-tier-lendario .overlay-cor-tier {
+    background: #fff200f2;
+    mix-blend-mode: multiply;
+}
+.topo-imagem-centro.bg-tier-lendario {
+    border-bottom: 2px solid rgba(255, 242, 0, 1);
+}
+/* TIER 4: MÍTICO (+10) - Ciano Neon */
+.topo-imagem-centro.bg-tier-mitico .overlay-cor-tier {
+    background: rgba(0, 225, 255, 0.50);
+    mix-blend-mode: multiply;
+}
+
+
+.topo-imagem-centro.bg-tier-mitico {
+    border-bottom: 2px solid #00ffff;
 }
 .nivel-flutuante-centro {
     position: absolute; top: 10px; left: 10px;
-    background: #8e44ad; color: #fff; font-weight: bold;
+    background: #4d4d4d; color: #fff; font-weight: bold;
     padding: 2px 8px; border-radius: 4px; font-size: 0.8em;
     box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+.botoes-flutuantes-esquerda {
+    position: absolute;
+    top: 40px; /* Distância do topo (Logo abaixo do badge de Nível) */
+    left: 10px; /* Alinhado à esquerda igual ao badge */
+    display: flex;
+    flex-direction: column; /* Um embaixo do outro */
+    gap: 8px; /* Espaço entre os botões */
+    z-index: 10;
+}
+
+/* Estilo Base dos Botões Redondos */
+.btn-float-action {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    background: rgba(0, 0, 0, 0.5); /* Fundo escuro transparente */
+    color: #fff;
+    font-size: 1.1em;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    backdrop-filter: blur(2px);
+    padding: 0;
+}
+
+/* Efeito ao passar o mouse */
+.btn-float-action:hover {
+    transform: scale(1.15);
+    border-color: #fff;
+    box-shadow: 0 0 8px rgba(255, 255, 255, 0.5);
+}
+
+/* Cores específicas no Hover */
+.btn-float-action.reciclar:hover {
+    background: #27ae60; /* Verde ao focar */
+}
+
+.btn-float-action.lixeira:hover {
+    background: #c0392b; /* Vermelho ao focar */
 }
 .box-direita-info {
     flex: 1;
@@ -2500,15 +2695,279 @@ h4 {
 .up-val { color: #27ae60; font-size: 0.85em; }
 
 /* Controles Laterais */
-.controles-mistica {
-    width: 100%;
-    max-width: 450px; /* Um pouco mais largo que a carta para ficar bonito */
+.controles-mistica-row {
+    display: flex;
+    gap: 12px;
+    padding: 10px 15px; /* Reduzido o padding vertical de 15px para 10px */
+    background: #f1f2f6;
+    border-radius: 12px;
+    border: 1px solid #dcdde1;
+    margin-top: 5px; /* Reduzido de 15px para 5px para subir a box */
+    align-items: stretch; /* Garante que as boxes internas tenham a mesma altura */
+}
+
+/* Bloco do Resíduo - Aumentando o preenchimento interno */
+.box-controle-residuo {
+    flex: 1.5;
+    background: #fff;
+    padding: 12px 15px;
+    border-radius: 10px;
+    border: 1px solid #dfe4ea;
     display: flex;
     flex-direction: column;
-    gap: 15px;
-    padding-top: 10px; /* Espaço extra */
-    /* Removemos larguras fixas pequenas antigas */
+    /* Altura fixa impede que a box cresça para baixo */
+    height: 115px; 
+    box-sizing: border-box;
 }
+
+/* Linha 1: Título Centralizado ou à Esquerda */
+.linha-titulo-unica {
+    font-size: 0.75em;
+    font-weight: 800;
+    color: #2c3e50;
+    text-transform: uppercase;
+    margin-bottom: 5px;
+    /* Impede que o texto quebre ou mude a altura */
+    white-space: nowrap; 
+}
+/* Alinhamento da Imagem com o Texto */
+.info-item-superior {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.img-residuo-destaque {
+    width: 38px; /* Aumentado para dar destaque */
+    height: 38px;
+    object-fit: contain;
+    filter: drop-shadow(0 2px 3px rgba(0,0,0,0.1));
+}
+.bloco-texto {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.2;
+}
+
+.label-titulo {
+    font-size: 0.85em;
+    font-weight: 800;
+    color: #2c3e50;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.valor-estoque {
+    font-size: 0.7em;
+    color: #95a5a6;
+}
+
+.header-inline {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.mini-icon { width: 50px; height: 50px; }
+.label-purity { font-size: 0.7em; font-weight: bold; color: #7f8c8d; text-transform: uppercase; flex: 1; }
+.valor-bonus { font-weight: 800; color: #8e44ad; font-size: 1.1em; }
+
+.slider-container-novo {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 8px;
+}
+
+.linha-controles-central {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 40px; /* Trava a altura da linha central */
+}
+
+.img-residuo-fixa {
+    width: 40px;
+    height: 40px;
+    object-fit: contain;
+}
+
+.coluna-slider {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #f8f9fa;
+    padding: 4px 10px;
+    border-radius: 20px;
+    border: 1px solid #eee;
+}
+
+.slider-mistico-novo {
+    flex: 1;
+    accent-color: #8e44ad;
+    cursor: pointer;
+}
+.bonus-flutuante {
+    font-weight: 900;
+    color: #8e44ad;
+    font-size: 1em;
+    min-width: 45px;
+    text-align: right;
+}
+.bonus-tag {
+    font-weight: 900;
+    color: #8e44ad;
+    font-size: 0.9em;
+    min-width: 35px;
+}
+.bonus-tag-fixa {
+    font-weight: 900;
+    color: #8e44ad;
+    font-size: 0.9em;
+    /* Largura suficiente para o "+10%" sem empurrar a borda */
+    min-width: 42px; 
+    text-align: right;
+    display: inline-block;
+}
+
+/* Linha 3: Footer */
+.linha-estoque-footer {
+    font-size: 0.65em;
+    color: #95a5a6;
+    text-align: right;
+    margin-top: auto; /* Garante que fique sempre colado no fundo */
+}
+
+.estoque-footer { font-size: 0.65em; color: #95a5a6; margin-top: 5px; text-align: right; }
+
+/* --- BLOCO DIREITO: AÇÃO --- */
+.box-execucao-final {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    justify-content: space-between; /* Espalha os elementos para ocupar a altura */
+}
+
+.display-chance {
+    background: #2c3e50;
+    color: white;
+    padding: 5px;
+    border-radius: 6px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    line-height: 1;
+}
+
+.display-chance small { font-size: 0.55em; opacity: 0.7; margin-bottom: 2px; }
+.num-chance { font-size: 1.2em; font-weight: 600; }
+
+/* Dinâmica de Cores da Chance */
+.chance-alta { color: #2ecc71; }
+.chance-media { color: #f1c40f; }
+.chance-baixa { color: #e74c3c; }
+
+.btn-principal-encantar {
+    background: linear-gradient(to bottom, #9b59b6, #8e44ad);
+    color: white;
+    border: none;
+    padding: 14px;
+    border-radius: 6px;
+    font-weight: 900;
+    font-size: 0.95em;
+    cursor: pointer;
+    box-shadow: 0 4px 0 #71368a;
+    transition: all 0.1s;
+}
+
+.btn-principal-encantar:active { transform: translateY(2px); box-shadow: 0 2px 0 #71368a; }
+.btn-principal-encantar:disabled { background: #bdc3c7; box-shadow: none; cursor: not-allowed; }
+
+.btn-trash, .btn-recycle { 
+    background: none; border: none; cursor: pointer; font-size: 1.1em; opacity: 0.6; 
+}
+.btn-trash:hover { opacity: 1; filter: drop-shadow(0 0 5px red); }
+.btn-recycle:hover { opacity: 1; filter: drop-shadow(0 0 5px green); }
+
+/* Responsividade Celular */
+@media (max-width: 600px) {
+    .controles-mistica-row { flex-direction: column; align-items: stretch; }
+    .img-centro-destaque {
+    width: 70px; height: 70px !important;
+}
+}
+.box-residuo-mini {
+    flex: 1; /* Ocupa 50% ou o que der */
+    width: 250px;
+    background: #fff;
+    border: 1px solid #bdc3c7;
+    border-radius: 6px;
+    padding: 15px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+}
+
+.header-residuo { display: flex; align-items: center; gap: 5px; margin-bottom: 5px; }
+.icone-texto-mini { width: 35px; height: 35px; }
+.titulo-mini { font-size: 0.6em; font-weight: bold; color: #7f8c8d; text-transform: uppercase; }
+
+.input-area-mini { width: 100%; display: flex; flex-direction: column; align-items: center; }
+.valor-mini { font-size: 1.2em; font-weight: 800; color: #8e44ad; }
+.slider-mistico-mini { width: 90%; accent-color: #8e44ad; height: 4px; }
+.estoque-mini { font-size: 0.6em; color: #95a5a6; margin-top: 2px; }
+
+/* Caixa Direita (Ação) */
+.box-acao-mini {
+    flex: 1.2; /* Um pouquinho maior que o resíduo */
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.chance-mini {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #2c3e50;
+    color: #fff;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.7em;
+    font-weight: bold;
+}
+
+.btn-encantar-mini {
+    flex: 1;
+    margin: 5px 0;
+    background: linear-gradient(to bottom, #9b59b6, #8e44ad);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-weight: 800;
+    font-size: 0.9em;
+    cursor: pointer;
+    box-shadow: 0 3px 0 #71368a;
+    transition: all 0.1s;
+}
+.btn-encantar-mini:active { transform: translateY(2px); box-shadow: 0 1px 0 #71368a; }
+.btn-encantar-mini:disabled { background: #bdc3c7; box-shadow: none; cursor: not-allowed; }
+
+.botoes-extra-mini {
+    display: flex;
+    justify-content: flex-end;
+    gap: 5px;
+}
+
+.btn-icon-clean {
+    background: none; border: 1px solid #bdc3c7; border-radius: 4px;
+    cursor: pointer; font-size: 0.8em; padding: 2px 6px; background: #fff;
+}
+.btn-icon-clean:hover { background: #f1f2f6; }
 .consumivel-box { background: #f8f9fa; padding: 12px; border-radius: 8px; border: 1px solid #eee; }
 .pedra-label { font-size: 0.75em; font-weight: bold; color: #8e44ad; }
 .po-info { font-size: 0.7em; margin: 10px 0 5px; color: #636e72; }
@@ -2568,6 +3027,71 @@ h4 {
     font-weight: bold; cursor: pointer; box-shadow: 0 4px 0 #6c3483;
 }
 .btn-reciclar:hover { filter: brightness(1.1); transform: translateY(-2px); }
+.icone-texto {
+    height: 2.5em; /* Define o tamanho do ícone baseado no tamanho do texto */
+    width: auto;
+    vertical-align: middle; /* Alinha com o meio do texto */
+    margin-right: 6px; /* Espacinho entre imagem e texto */
+    filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.5)); /* Sombra para destacar */
+}
+/* Container dos 3 botões */
+.selecao-pedras-container {
+    display: flex;
+    justify-content: space-between;
+    gap: 5px;
+    padding: 10px;
+    background: #f8f9fa;
+    border-top: 1px solid #e0e0e0;
+    margin-top: 20px; /* Empurra para baixo se sobrar espaço */
+}
+
+/* O Botão da Pedra */
+.btn-pedra-opcao {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 6px;
+    border: 2px solid #dcdde1;
+    border-radius: 8px;
+    background: #fff;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+    min-height: 80px;
+}
+
+/* Estados do Botão */
+.btn-pedra-opcao:hover { transform: translateY(-2px); border-color: #bdc3c7; }
+.btn-pedra-opcao.ativo {
+    border-color: #8e44ad;
+    background: #f4ecf7;
+    box-shadow: 0 0 8px rgba(142, 68, 173, 0.3);
+}
+.btn-pedra-opcao.sem-estoque {
+    opacity: 0.6;
+    filter: grayscale(1);
+}
+
+/* Imagem e Textos */
+.img-pedra-btn { width: 32px; height: 32px; object-fit: contain; margin-bottom: 4px; }
+.info-pedra-btn { display: flex; flex-direction: column; align-items: center; line-height: 1; }
+.nome-p-btn { font-size: 0.6em; font-weight: bold; text-align: center; color: #7f8c8d; margin-bottom: 2px; }
+.qtd-p-btn { font-size: 0.75em; font-weight: 800; color: #2c3e50; }
+
+/* Mini preview da chance */
+.chance-preview-mini {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    background: #2d3436;
+    color: #fff;
+    font-size: 0.6em;
+    padding: 2px 5px;
+    border-radius: 10px;
+    font-weight: bold;
+}
 /* =========================================================
    CORREÇÃO RESPONSIVA - ABA DE APRIMORAMENTO (MOBILE)
    ========================================================= */
