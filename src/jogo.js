@@ -259,7 +259,8 @@ function finalizarCraft(index) {
                     nivel: 0, // Começa +0
                     tipo: receita.tipo, // Importante para o filtro
                     categoria: 'heroi',
-                    stats: { ...receita.stats } // Copia os stats base
+                    stats: { ...receita.stats }, // Copia os stats base
+                    atributoInativo: receita.atributoInativo // Copia o atributo inativo
                 });
             }
         } else {
@@ -697,7 +698,8 @@ export const acoes = {
                                 nivel: 0, 
                                 tipo: receita.tipo,
                                 categoria: 'heroi',
-                                stats: { ...receita.stats } 
+                                stats: { ...receita.stats },
+                                atributoInativo: receita.atributoInativo
                             });
                         }
                     } else {

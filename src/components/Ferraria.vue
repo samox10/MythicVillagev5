@@ -44,6 +44,17 @@ const modalRelatorioInterrupcao = ref(null);
 // --- NOVO: ESTADO DA ABA DE APRIMORAMENTO ---
 const filtroInv = ref('arma'); // Filtro da lista da esquerda (inventário)
 const itemParaAprimorar = ref(null);
+// --- CONTROLE DOS MODAIS DE CONFIRMAÇÃO ---
+const modalReciclarAberto = ref(false);
+const modalLixeiraAberto = ref(false);
+const ganhoPrevistoReciclagem = ref(0); // Para mostrar quanto pó vai ganhar
+// Função auxiliar para pegar a cor do tier na lista
+const getTierMini = (nivel) => {
+    if (nivel >= 10) return 'mini-tier-mitico';   // Ciano (+10)
+    if (nivel >= 8)  return 'mini-tier-lendario'; // Dourado (+8, +9)
+    if (nivel >= 5)  return 'mini-tier-raro';     // Roxo (+5 a +7)
+    return 'mini-tier-comum';                     // Padrão (+0 a +4)
+};
 const pedraSelecionada = ref(null); // Qual pedra o usuário clicou
 const qtdPoUsado = ref(0);
 const modalSelecaoAberto = ref(null); 
@@ -60,6 +71,10 @@ const inventarioFiltrado = computed(() => {
         if (filtroInv.value !== 'todos' && instancia.tipo !== filtroInv.value) return false;
         
         return true;
+    })
+    .sort((a, b) => {
+        // Ordena do Maior (b) para o Menor (a) baseado no Nível
+        return b.nivel - a.nivel;
     });
 });
 // --- NOVAS AÇÕES: LIXEIRA E RECICLAGEM ---
@@ -69,30 +84,44 @@ const removerDoInventario = (uidAlvo) => {
     itemParaAprimorar.value = null; // Limpa a seleção
 };
 
-const reciclarItem = () => {
+const clicarBotaoReciclar = () => {
     const item = itemParaAprimorar.value;
     if (!item) return;
 
-    // Regra: Mínimo +7 para dar pó
-    if (item.nivel < 7) {
-        mostrarAviso("Item Fraco", "Apenas itens +7 ou superior geram Resíduo de Aprimoramento.");
+    if (item.nivel < 5) {
+        mostrarAviso("Item Fraco", "Apenas itens +5 ou superior geram Resíduo.");
         return;
     }
 
-    // Fórmula: (Nível do Item * Nível Upgrade) / 2
-    const ganhoPo = Math.floor((item.nivel - 5) * 8);
+    // Calcula quanto vai ganhar só para mostrar no modal
+    ganhoPrevistoReciclagem.value = Math.floor((item.nivel - 4) * 8);
     
-    jogo.poMistico = (jogo.poMistico || 0) + ganhoPo; // Adiciona ao inventário
-    
-    removerDoInventario(item.uid);
-    mostrarAviso("Reciclado!", `Você obteve ${ganhoPo} unidades de Resíduo de Aprimoramento.`, "sucesso");
+    modalReciclarAberto.value = true; // ABRE O MODAL
 };
 
-const lixeiraItem = () => {
+const clicarBotaoLixeira = () => {
     if (!itemParaAprimorar.value) return;
-    if (confirm("Tem certeza? O item será destruído para sempre sem dar nada em troca.")) {
+    modalLixeiraAberto.value = true; // ABRE O MODAL
+};
+const confirmarReciclagem = () => {
+    const item = itemParaAprimorar.value;
+    if (!item) return;
+
+    // Adiciona o pó
+    jogo.poMistico = (jogo.poMistico || 0) + ganhoPrevistoReciclagem.value;
+    
+    // Remove o item
+    removerDoInventario(item.uid);
+    
+    mostrarAviso("Reciclado!", `Você obteve ${ganhoPrevistoReciclagem.value} Resíduos.`, "sucesso");
+    modalReciclarAberto.value = false; // Fecha modal
+};
+
+const confirmarLixeira = () => {
+    if (itemParaAprimorar.value) {
         removerDoInventario(itemParaAprimorar.value.uid);
     }
+    modalLixeiraAberto.value = false; // Fecha modal
 };
 // Pedras Disponíveis (Agora só mostra as de nível)
 const minhasPedras = computed(() => {
@@ -131,6 +160,12 @@ const realizarAprimoramento = () => {
 
     if (!item || !pedra) return;
 
+    // --- NOVA TRAVA DE SEGURANÇA AQUI ---
+    if (item.nivel >= 10) {
+        mostrarAviso("Nível Máximo", "Este item atingiu seu verdadeiro potencial!", "aviso");
+        return;
+    }
+
     // Verifica Pedra
     const idPedra = pedra.id;
     if ((jogo[idPedra] || 0) < 1) {
@@ -139,7 +174,8 @@ const realizarAprimoramento = () => {
     }
 
     // Verifica Ouro
-    const custoOuro = 50 * (item.nivel + 1);
+    const custoOuro = 3000; // Valor fixo solicitado (3k por tentativa)
+    
     if (jogo.ouro < custoOuro) {
          mostrarAviso("Sem Ouro", `Custa ${custoOuro} ouros.`);
          return;
@@ -372,9 +408,12 @@ const aplicarSegurancaFerreiro = (aba, temFerreiro, categoria) => {
         if (itensAfetados.length > 0) modalRelatorioInterrupcao.value = itensAfetados;
     }
 };
-
-
-
+    const voltarAoTopo = () => {
+        window.scrollTo({
+            top: 0,
+            behavior: 'smooth' // Faz a subida ser animada e suave
+        });
+    };
     // Função que verifica a posição da tela
     const verificarScroll = () => {
         // Se desceu mais que 300 pixels, mostra o botão
@@ -908,12 +947,12 @@ const corTier = (t) => ({'F':'#8A8A8A','E':'#659665','D':'#71c404','C':'#475fad'
         </div>
 
         <div class="lista-itens-scroll-v2">
-            <div v-for="item in inventarioFiltrado" :key="item.uid" 
-                 class="item-linha-compacta"
-                 :class="{ 'selecionado': itemParaAprimorar && itemParaAprimorar.uid === item.uid }"
-                 @click="itemParaAprimorar = item">
+            <div v-for="(item, index) in inventarioFiltrado" :key="item.uid + '-' + index" 
+                class="item-linha-compacta"
+                :class="{ 'selecionado': itemParaAprimorar && itemParaAprimorar.uid === item.uid }"
+                @click="itemParaAprimorar = item">
                 
-                <div class="slot-icone-mini">
+                <div class="slot-icone-mini" :class="getTierMini(item.nivel)">
                     <img :src="(dadosItens.find(i=>i.id===item.id)||{}).img" class="img-inv-mini">
                 </div>
                 
@@ -923,14 +962,23 @@ const corTier = (t) => ({'F':'#8A8A8A','E':'#659665','D':'#71c404','C':'#475fad'
                 </div>
             </div>
             
-            <div v-if="inventarioFiltrado.length === 0" class="aviso-vazio">Vazio</div>
+            <div v-if="inventarioFiltrado.length === 0" class="empty-state-container">
+                <div class="ghost-circle">
+                    <span class="ghost-icon">🎒</span>
+                </div>
+                <h4 class="ghost-title">Mochila Vazia</h4>
+                <p class="ghost-desc">Nenhum item desta categoria encontrado.</p>
+            </div>
         </div>
     </div>
 
     <div class="painel-encantamento-foco">
-        <div v-if="!itemParaAprimorar" class="estado-espera">
-            <span class="icone-espera">⚒️</span>
-            <p>Selecione um item para aprimorar</p>
+        <div v-if="!itemParaAprimorar" class="estado-espera-centro">
+            <div class="big-rune-circle">
+                <span class="rune-icon-pulsing">⚒️</span>
+            </div>
+            <h3 class="wait-title">Mesa de Encantamento</h3>
+            <p class="wait-desc">Selecione um equipamento para aprimorar.</p>
         </div>
 
         <div v-else class="interface-mistica-ativa">
@@ -940,15 +988,15 @@ const corTier = (t) => ({'F':'#8A8A8A','E':'#659665','D':'#71c404','C':'#475fad'
                 <div class="nivel-flutuante-centro" style="z-index: 5;">+{{ itemParaAprimorar.nivel }}</div>
                 
                 <div class="botoes-flutuantes-esquerda" style="z-index: 5;">
-                    <button v-if="itemParaAprimorar && itemParaAprimorar.nivel >= 7" 
+                    <button v-if="itemParaAprimorar && itemParaAprimorar.nivel >= 5" 
                             class="btn-float-action reciclar" 
-                            @click.stop="reciclarItem" 
+                            @click.stop="clicarBotaoReciclar"
                             title="Reciclar em Resíduo (+7 ou superior)">
                         ♻️
                     </button>
 
                     <button class="btn-float-action lixeira" 
-                            @click.stop="lixeiraItem" 
+                            @click.stop="clicarBotaoLixeira"
                             title="Jogar Fora">
                         🗑️
                     </button>
@@ -977,6 +1025,13 @@ const corTier = (t) => ({'F':'#8A8A8A','E':'#659665','D':'#71c404','C':'#475fad'
                         </div>
                     </div>
                 </template>
+            </div>
+            <div v-if="itemParaAprimorar.atributoInativo" class="box-atributo-especial" 
+                 :class="{ 'despertado': itemParaAprimorar.nivel >= 10 }">
+                
+                <div class="texto-especial">
+                    {{ itemParaAprimorar.atributoInativo }}
+                </div>
             </div>
             <div v-if="itemParaAprimorar.stats" class="lista-atributos-carta">
    </div>
@@ -1031,13 +1086,19 @@ const corTier = (t) => ({'F':'#8A8A8A','E':'#659665','D':'#71c404','C':'#475fad'
         </div>
 
         <button class="btn-principal-encantar" 
-                :disabled="!pedraSelecionada || !itemParaAprimorar" 
+                :disabled="!pedraSelecionada || !itemParaAprimorar || itemParaAprimorar.nivel >= 10" 
                 @click="realizarAprimoramento">
-            ENCANTAR
+            {{ itemParaAprimorar && itemParaAprimorar.nivel >= 10 ? 'ENCANTAR' : 'ENCANTAR' }}
         </button>
         
-        <div>
-             &nbsp;
+        <div class="info-custo-fixo" style="text-align: center; font-size: 0.85em; color: #7f8c8d; margin-top: 5px;">
+            <template v-if="itemParaAprimorar && itemParaAprimorar.nivel < 10">
+                Custo: <strong>3.000</strong> <img src="/assets/ui/icone_goldC.png" style="width: 14px; vertical-align: middle;">
+            </template>
+            
+            <template v-else>
+                &nbsp;
+            </template>
         </div>
     </div>
 </div>
@@ -1095,6 +1156,70 @@ const corTier = (t) => ({'F':'#8A8A8A','E':'#659665','D':'#71c404','C':'#475fad'
 
         </div>
     </div>
+    <div v-if="modalReciclarAberto" class="modal-overlay" style="z-index: 10000;">
+        <div class="modal-rpg-confirmacao tema-reciclar">
+            
+            <div class="modal-header-rpg">
+                <h3>♻️ Ritual de Reciclagem</h3>
+            </div>
+
+            <div class="modal-body-rpg">
+                <p class="aviso-texto">Você está prestes a desencantar este item para extrair sua essência mágica.</p>
+                
+                <div class="item-preview-modal" :class="classeBackgroundTier">
+                    <img :src="(dadosItens.find(i=>i.id===itemParaAprimorar.id)||{}).img" class="img-modal-confirm">
+                    
+                    <div class="info-modal-item row-center">
+                        <span class="nome-modal">{{ itemParaAprimorar.nome }}</span>
+                        <span class="box-nivel-destaque">+{{ itemParaAprimorar.nivel }}</span>
+                    </div>
+                </div>
+
+                <div class="box-ganho-destaque">
+                    <span class="label-ganho">Você receberá:</span>
+                    <div class="valor-ganho">
+                        <img :src="imgResiduo" width="25">
+                        <strong>+{{ ganhoPrevistoReciclagem }}</strong> Resíduos
+                    </div>
+                </div>
+
+                <p class="aviso-final">O item será destruído permanentemente.</p>
+            </div>
+
+            <div class="modal-footer-rpg">
+                <button class="btn-cancelar-rpg" @click="modalReciclarAberto = false">Cancelar</button>
+                <button class="btn-confirmar-rpg btn-roxo" @click="confirmarReciclagem">⚗️ RECICLAR</button>
+            </div>
+        </div>
+    </div>
+
+<div v-if="modalLixeiraAberto" class="modal-overlay" style="z-index: 10000;">
+    <div class="modal-rpg-confirmacao tema-lixeira">
+        
+        <div class="modal-header-rpg alerta">
+            <h3>🗑️ Descartar Item</h3>
+        </div>
+
+        <div class="modal-body-rpg">
+            <p class="aviso-texto">Tem certeza que deseja jogar este item fora? Esta ação não pode ser desfeita.</p>
+            
+            <div class="item-preview-modal" :class="classeBackgroundTier">
+                <img :src="(dadosItens.find(i=>i.id===itemParaAprimorar.id)||{}).img" class="img-modal-confirm">
+                <div class="info-modal-item row-center">
+                        <span class="nome-modal">{{ itemParaAprimorar.nome }}</span>
+                        <span class="box-nivel-destaque">+{{ itemParaAprimorar.nivel }}</span>
+                    </div>
+            </div>
+
+            <p class="aviso-final perigo">Você NÃO receberá nada em troca.</p>
+        </div>
+
+        <div class="modal-footer-rpg">
+            <button class="btn-cancelar-rpg" @click="modalLixeiraAberto = false">Manter Item</button>
+            <button class="btn-confirmar-rpg btn-vermelho" @click="confirmarLixeira">🔥 DESTRUIR</button>
+        </div>
+    </div>
+</div>
 </template>
 
 <style scoped>
@@ -1768,8 +1893,8 @@ const corTier = (t) => ({'F':'#8A8A8A','E':'#659665','D':'#71c404','C':'#475fad'
         backdrop-filter: blur(2px);
     }
     .area-stats-dupla { 
-        gap: 5px 10px; 
-        padding: 10px;
+        gap: 5px 5px !important; 
+        padding: 10px 6px !important;
     }
 
     /* 2. A Janela Centralizada (COM FORÇA TOTAL) */
@@ -2331,11 +2456,14 @@ h4 {
 .container-aprimoramento-v2 {
     display: flex;
     gap: 15px;
-    height: 680px;
+    height: auto;
+    min-height: 450px;    /* ...mas nunca fica menor que 500px... */
+    max-height: 77vh;     /* ...E NUNCA fica maior que 80% da altura da tela (Trava o infinito) */
     background: #ecf0f1;
     border-radius: 12px;
     padding: 15px;
     border: 1px solid #bdc3c7;
+
 }
 
 /* Painel Esquerdo (Inventário) */
@@ -2377,7 +2505,7 @@ h4 {
     border-color: #8e44ad;
     box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
 }
-.lista-itens-scroll-v2 { flex: 1; overflow-y: auto; padding: 1px; }
+.lista-itens-scroll-v2 { flex: 1; overflow-y: auto; padding: 1px; min-height: 0; }
 .item-linha-compacta {
     display: flex; align-items: center; gap: 5px; padding: 4px;
     border-radius: 6px; cursor: pointer; border: 1px solid transparent; margin-bottom: 4px;
@@ -2392,7 +2520,80 @@ h4 {
 .nv-inv-mini { font-size: 0.65em; color: #8e44ad; font-weight: bold; }
 
 /* Painel Direito (Foco) */
-.painel-encantamento-foco { flex: 1; background: #fff; border-radius: 8px; border: 1px solid #dcdde1; display: flex; align-items: top; justify-content: center; position: relative; }
+
+.painel-encantamento-foco { 
+    flex: 1; 
+    background: #fff; 
+    border-radius: 8px; 
+    border: 1px solid #dcdde1; 
+    
+    display: flex; 
+    /* MUDANÇA AQUI: Alinhamento vertical e horizontal total */
+    flex-direction: column;
+    align-items: center;     /* Centro Horizontal */
+    justify-content: flex-start;  /* Início Vertical */
+    
+    position: relative; 
+    min-height: 500px; /* Garante altura para ter onde centralizar */
+    padding-top: 0px;
+}
+/* --- ESTADO DE ESPERA (DIREITA) --- */
+.estado-espera-centro {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.6; /* Deixa sutil */
+    animation: fadeInSuave 0.5s ease;
+    padding-top: 145px;
+    
+}
+
+.big-rune-circle {
+    width: 100px;
+    height: 100px;
+    background: #fdfdfd;
+    border: 4px solid #ecf0f1;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 20px;
+    box-shadow: 0 0 20px rgba(0,0,0,0.03);
+}
+
+.rune-icon-pulsing {
+    font-size: 3.5em;
+    filter: grayscale(1);
+    opacity: 0.4;
+    animation: pulsarRuna 3s infinite ease-in-out;
+}
+
+.wait-title {
+    margin: 0;
+    font-size: 1.1em;
+    font-weight: 800;
+    color: #95a5a6;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.wait-desc {
+    margin: 8px 0 0 0;
+    font-size: 0.85em;
+    color: #bdc3c7;
+}
+
+@keyframes pulsarRuna {
+    0% { transform: scale(1); opacity: 0.4; }
+    50% { transform: scale(1.05); opacity: 0.6; }
+    100% { transform: scale(1); opacity: 0.4; }
+}
+
+@keyframes fadeInSuave {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 0.6; transform: translateY(0); }
+}
 .estado-espera { text-align: center; color: #bdc3c7; }
 .icone-espera { font-size: 4em; display: block; opacity: 0.3; }
 
@@ -2558,6 +2759,32 @@ h4 {
 
 .topo-imagem-centro.bg-tier-mitico {
     border-bottom: 2px solid #00ffff;
+}
+/* Padrão (Cinza Claro) */
+.mini-tier-comum {
+    background: #ecf0f1;
+    border: 1px solid #bdc3c7;
+}
+
+/* Raro (+5 a +7) - Roxo Suave */
+.mini-tier-raro {
+    background: linear-gradient(135deg, #e1bee7, #d1c4e9);
+    border: 1px solid #9b59b6;
+    box-shadow: inset 0 0 5px rgba(155, 89, 182, 0.2);
+}
+
+/* Lendário (+8 a +9) - Dourado Pálido */
+.mini-tier-lendario {
+    background: linear-gradient(135deg, #fff9c4, #ffecb3);
+    border: 1px solid #f1c40f;
+    box-shadow: inset 0 0 5px rgba(241, 196, 15, 0.3);
+}
+
+/* Mítico (+10) - Ciano/Azul Neon Suave */
+.mini-tier-mitico {
+    background: linear-gradient(135deg, #e0f7fa, #b2ebf2);
+    border: 1px solid #00cec9;
+    box-shadow: 0 0 5px rgba(0, 206, 201, 0.4); /* Brilho externo */
 }
 .nivel-flutuante-centro {
     position: absolute; top: 10px; left: 10px;
@@ -3042,7 +3269,7 @@ h4 {
     padding: 10px;
     background: #f8f9fa;
     border-top: 1px solid #e0e0e0;
-    margin-top: 20px; /* Empurra para baixo se sobrar espaço */
+    margin-top: 14px; /* Empurra para baixo se sobrar espaço */
 }
 
 /* O Botão da Pedra */
@@ -3092,6 +3319,215 @@ h4 {
     border-radius: 10px;
     font-weight: bold;
 }
+/* --- ESTILO DO ATRIBUTO OCULTO/DESPERTADO --- */
+.box-atributo-especial {
+    width: 85%;
+    margin: 2px auto;
+    padding: 7px;
+    background: #f9f9f9;
+    /* A mágica está aqui: uma borda cinza na esquerda quando bloqueado */
+    border-left: 4px solid #bdc3c7; 
+    border-right: 4px solid #bdc3c7; 
+    border-top: 1px solid #eee;
+    border-bottom: 1px solid #eee;
+    border-radius: 15px 15px 15px 15px; /* Arredonda só a direita */
+    text-align: center; /* Texto alinhado à esquerda fica mais sério */
+    transition: all 0.3s ease;
+}
+
+.titulo-especial {
+    font-size: 0.6em;
+    font-weight: 800;
+    color: #95a5a6;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 2px;
+}
+
+.texto-especial {
+    font-size: 0.8em;
+    color: #bdc3c7;
+    font-style: italic;
+}
+
+/* --- ESTADO DESPERTADO --- */
+.box-atributo-especial.despertado {
+    background: #37ff0009;
+    /* A borda vira Dourada/Laranja */
+    border-left: 4px solid #36c905; 
+    border-right: 4px solid #36c905;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05); /* Sombra quase imperceptível */
+}
+
+.box-atributo-especial.despertado .titulo-especial {
+    color: #f39c12;
+}
+
+.box-atributo-especial.despertado .texto-especial {
+    color: #2c3e50;
+    font-style: italic;
+    font-weight: 500;
+}
+.empty-state-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 0px 10px;
+    height: 100%;       /* Ocupa a altura disponível */
+    min-height: 100px;  /* Altura mínima para não ficar espremido */
+    opacity: 0.7;       /* Leve transparência geral */
+    text-align: center;
+}
+
+.ghost-circle {
+    width: 60px;
+    height: 60px;
+    background: #f1f2f6;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 10px;
+    border: 1px dashed #bdc3c7; /* Borda tracejada dá ideia de slot vazio */
+}
+
+.ghost-icon {
+    font-size: 2em;
+    filter: grayscale(1); /* Deixa o emoji cinza para combinar */
+    opacity: 0.5;
+}
+
+.ghost-title {
+    margin: 0;
+    font-size: 0.9em;
+    font-weight: 800;
+    color: #7f8c8d;
+    text-transform: uppercase;
+}
+
+.ghost-desc {
+    margin: 5px 0 0 0;
+    font-size: 0.75em;
+    color: #95a5a6;
+    max-width: 80%; /* Garante que o texto não bata nas bordas */
+}
+/* --- MODAL RPG CONFIRMAÇÃO --- */
+.modal-rpg-confirmacao {
+    background: #fff;
+    width: 90%;
+    max-width: 380px;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+    animation: modalPop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    display: flex; flex-direction: column;
+}
+
+/* Temas de Cor */
+.tema-reciclar { border: 2px solid #8e44ad; }
+.tema-reciclar .modal-header-rpg { background: #8e44ad; color: #fff; }
+
+.tema-lixeira { border: 2px solid #c0392b; }
+.tema-lixeira .modal-header-rpg { background: #c0392b; color: #fff; }
+
+.modal-header-rpg {
+    padding: 15px; text-align: center;
+}
+.modal-header-rpg h3 { margin: 0; font-size: 1.1em; text-transform: uppercase; letter-spacing: 1px; }
+
+.modal-body-rpg {
+    padding: 20px;
+    background: #fdfdfd;
+    display: flex; flex-direction: column; align-items: center; gap: 15px;
+}
+
+.aviso-texto { text-align: center; color: #7f8c8d; font-size: 0.9em; margin: 0; }
+
+/* O Card do Item dentro do modal */
+.item-preview-modal {
+    display: flex; align-items: center; gap: 15px;
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    padding: 10px;
+    border-radius: 8px;
+    width: 100%;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+}
+/* Reuso das cores de Tier no fundo do card */
+.item-preview-modal.bg-tier-mitico { background: linear-gradient(to right, #fff, #e0f7fa); border-color: #00cec9; }
+.item-preview-modal.bg-tier-lendario { background: linear-gradient(to right, #fff, #fff9c4); border-color: #f1c40f; }
+
+.img-modal-confirm { width: 50px; height: 50px; object-fit: contain; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.3)); }
+
+.info-modal-item.row-center {
+    display: flex;
+    flex-direction: row;       /* Garante que fique lado a lado */
+    align-items: center;       /* Centraliza verticalmente */
+    justify-content: center;   /* Centraliza horizontalmente (opcional) */
+    gap: 8px;                  /* Espaço entre o Nome e a Box */
+    flex: 1;
+}
+
+/* O estilo do Nome */
+.nome-modal {
+    font-weight: 600;
+    color: #2c3e50;
+    font-size: 0.8em;
+    text-transform: uppercase; /* Fica bonito em nomes de item */
+}
+
+/* A Caixinha do Nível */
+.box-nivel-destaque {
+    background: #2c3e50;       /* Fundo escuro */
+    color: #fff;               /* Texto branco */
+    padding: 2px 8px;          /* Espaçamento interno */
+    border-radius: 6px;        /* Bordas arredondadas */
+    font-weight: bold;
+    font-size: 0.75em;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+.nivel-modal { font-weight: bold; color: #8e44ad; font-size: 0.8em; }
+
+.stats-resumo-modal {
+    display: flex; flex-wrap: wrap; gap: 5px; margin-top: 3px;
+}
+.stats-resumo-modal small {
+    background: #ecf0f1; padding: 2px 4px; border-radius: 4px; font-size: 0.65em; color: #7f8c8d;
+}
+
+/* Caixa de Ganho (Reciclagem) */
+.box-ganho-destaque {
+    background: #f3e5f5; border: 1px dashed #8e44ad;
+    padding: 10px; border-radius: 8px; width: 100%;
+    display: flex; justify-content: space-between; align-items: center;
+}
+.label-ganho { font-size: 0.8em; color: #8e44ad; font-weight: bold; }
+.valor-ganho { display: flex; align-items: center; gap: 5px; font-size: 1.1em; color: #2c3e50; }
+
+.aviso-final { font-size: 0.75em; color: #95a5a6; font-style: italic; margin: 0; }
+.aviso-final.perigo { color: #c0392b; font-weight: bold; }
+
+/* Botões */
+.modal-footer-rpg {
+    padding: 15px;
+    display: flex; gap: 10px;
+    background: #f4f6f7;
+    border-top: 1px solid #ecf0f1;
+}
+.btn-cancelar-rpg {
+    flex: 1; padding: 12px; border: 1px solid #bdc3c7; background: #fff;
+    border-radius: 6px; cursor: pointer; font-weight: bold; color: #7f8c8d;
+}
+.btn-confirmar-rpg {
+    flex: 1.5; padding: 12px; border: none; border-radius: 6px;
+    cursor: pointer; font-weight: 800; color: #fff;
+    box-shadow: 0 4px 0 rgba(0,0,0,0.2);
+}
+.btn-confirmar-rpg:active { transform: translateY(2px); box-shadow: none; }
+
+.btn-roxo { background: #8e44ad; }
+.btn-vermelho { background: #c0392b; }
 /* =========================================================
    CORREÇÃO RESPONSIVA - ABA DE APRIMORAMENTO (MOBILE)
    ========================================================= */
@@ -3099,9 +3535,10 @@ h4 {
     /* 1. Transforma o container que era lado-a-lado em coluna */
     .container-aprimoramento-v2 {
         flex-direction: column !important; /* Força ficar um em cima do outro */
-        height: auto !important; /* Remove a altura fixa para crescer conforme precisa */
+        height: auto !important;
+        max-height: none !important; /* Remove a trava de 80vh */
+        overflow: visible !important; /* Deixa a página crescer e rolar normalmente */
         padding: 5px !important;
-        overflow: visible; /* Evita cortes */
     }
 
     /* 2. O Inventário (que estava na esquerda) vira uma caixa no topo */
@@ -3124,10 +3561,38 @@ h4 {
 
     /* 4. A Mesa de Encantamento (que estava na direita) vai para baixo */
     .painel-encantamento-foco {
-        width: 100% !important;
-        display: block !important; /* Remove flex complexo */
+        /* MUDANÇA: Em vez de 100%, usamos 94% para deixar um respiro nas laterais */
+        width: 93% !important;
+        
+        /* Centraliza a caixa na tela */
+        margin: 15px auto !important; 
+
+        display: flex !important;
+        flex-direction: column !important;
+        justify-content: center !important;
+        align-items: center !important;
+
+        /* Removemos a altura fixa para ela ficar do tamanho do conteúdo */
+        min-height: auto !important; 
         height: auto !important;
-        padding-bottom: 20px;
+        
+        /* Padding menor para não ficar muito "gorda" verticalmente também */
+        padding: 25px 10px !important; 
+    }
+
+    /* 2. Ajuste do tamanho do Ícone/Texto para celular */
+    .big-rune-circle {
+        width: 70px;  /* Menor que no PC */
+        height: 70px;
+        border-width: 3px;
+    }
+    
+    .rune-icon-pulsing {
+        font-size: 2em; /* Ícone menor */
+    }
+
+    .wait-title {
+        font-size: 0.9em; /* Texto menor */
     }
 
     /* 5. A Carta e os Controles agora ficam empilhados */
@@ -3137,13 +3602,18 @@ h4 {
         gap: 15px;
         width: 100%;
         box-sizing: border-box;
+        padding: 5px !important; /* <--- ADICIONE ESTA LINHA (Reduz a borda geral) */
     }
 
     /* 6. A Carta do Item */
     .moldura-carta-rpg {
         width: 100% !important;
-        max-width: 320px; /* Limite para não ficar gigante */
-        margin: 0 auto; /* Centraliza */
+        /* Aumentamos de 320px para 380px para caber os números */
+        max-width: 380px; 
+        margin: 0 auto;/* Centraliza */
+    }
+    .linha-stat-mini {
+    font-size: 0.7em !important; /* Tamanho confortável */
     }
 
     /* 7. Os Controles (Slider de Pó e Botão) */
@@ -3163,5 +3633,9 @@ h4 {
     .estado-espera {
         padding: 40px 10px;
     }
+    .estado-espera-centro {
+    padding-top: 0px !important;
+    
+}
 }
 </style>

@@ -30,7 +30,8 @@ export const tabelaItens = [
     tempo: 10, 
     reqNivel: 1,
     nivelItem: 5,
-    stats: { ataque: 8, critico: 2, danoCritico: 50, penetracao: 2, magia: 1
+    stats: { ataque: 8, critico: 2, danoCritico: 50, penetracao: 2, magia: 1,
+    atributoInativo: "Dano contra slimes +10%"
      }     
   },
   { 
@@ -41,7 +42,8 @@ export const tabelaItens = [
     custo: { madeira: 20, ferro: 10 }, tempo: 30, 
     reqNivel: 2,
     nivelItem: 5,
-    stats: { ataque: 12, precisao: 3, danoCritico: 80, critico: 3  }
+    stats: { ataque: 12, precisao: 3, danoCritico: 80, critico: 3  },
+    atributoInativo: "Dano contra slimes +10%"
   },
   
   // --- ARMADURAS ---
@@ -54,7 +56,8 @@ export const tabelaItens = [
     nivelItem: 5,
     img: '/assets/craft/armadura_couro.png',
     stats: { defesa: 3, evasao: 2, vida: 10, ataque: 1, critico: 1, 
-      danoCritico: 10, magia: 1, defesaMagica: 2,}
+      danoCritico: 10, magia: 1, defesaMagica: 2,},      
+      atributoInativo: "Dano contra slimes +10%"
   },
   { 
     id: 'armadura_ferro', nome: 'Armadura de Ferro', 
@@ -63,7 +66,8 @@ export const tabelaItens = [
     custo: { ferro: 15, couro: 5 }, tempo: 60, 
     reqNivel: 2,
     nivelItem: 5,
-    stats: { defesa: 10, evasao: -2 }
+    stats: { defesa: 10, evasao: -2 },
+    atributoInativo: "Dano contra slimes +10%"
   },
 
   
@@ -75,7 +79,8 @@ export const tabelaItens = [
     custo: { madeira: 100, pedra: 100 }, tempo: 20, qtd: 100, 
     reqNivel: 1,
     nivelItem: 102,
-    stats: { ataque: 2, mana: 5  }
+    stats: { ataque: 2, mana: 5  },
+    atributoInativo: "Dano contra slimes +10%"
   }
 ];
 // ------------------------------------------
