@@ -1,11 +1,18 @@
 import { reactive, computed } from 'vue';
-import { tabelaMinerais, tabelaItens } from './dados.js';
+import { tabelaMinerais, tabelaItens, tabelaCarcacas } from './dados.js';
 import { gerarFuncionario, criarObjetoFuncionario, processarFusao, calcularChancesFusao, ORDEM_TIERS } from './funcionarios.js';
 
+// --- DADOS DE ESTUDO BIBLIOTECA---
 export const DADOS_ESTUDO = {
     'pergaminho_comum': { nome: 'Pergaminho Comum', xp: 10, tempo: 60, cor: '#f1c40f' }, // 60 seg
     'tabula_pedra':     { nome: 'Tábula de Pedra',  xp: 50, tempo: 300, cor: '#95a5a6' }, // 5 min
     'tomo_antigo':      { nome: 'Tomo Criptografado', xp: 200, tempo: 1200, cor: '#8e44ad' } // 20 min
+};
+// --- DADOS DE PROCESSAMENTO DE CARCAÇAS ---
+export const DADOS_PROCESSAMENTO = {
+    'carcaca_javali': { nome: 'Carcaça de Javali', carne: 50, couro: 10, tempo: 30 },
+    'carcaca_lobo':   { nome: 'Carcaça de Lobo',   carne: 30, couro: 25, tempo: 45 },
+    'carcaca_touro':  { nome: 'Carcaça de Touro',  carne: 120, couro: 40, tempo: 120 }
 };
 // --- CONFIGURAÇÃO DOS PRÉDIOS (NOVO) ---
 // Aqui você define as regras de cada prédio em um lugar só.
@@ -59,7 +66,19 @@ const DADOS_CONSTRUCOES = {
     attrCusto: 'custoBiblioteca', // Nome exato do custo no 'jogo'
     multiplicador: 1.6, 
     tempoBase: 20 
-}
+    },
+    camaraProcessamento: { 
+        attrNivel: 'camaraProcessamento', 
+        attrCusto: 'custoCamaraProcessamento', 
+        multiplicador: 1.5, 
+        tempoBase: 30 
+    },
+    enfermaria: { 
+        attrNivel: 'enfermaria', 
+        attrCusto: 'custoEnfermaria', 
+        multiplicador: 1.5, 
+        tempoBase: 30 
+    },
 };
 export const ui = reactive({
     modal: { aberto: false, titulo: '', texto: '', tipo: 'confirmacao', onConfirm: null }
@@ -102,6 +121,7 @@ const alocacaoInicial = {};
 const bancoInicial = {};
 tabelaMinerais.forEach(m => { mineriosIniciais[m.id] = 0; trabalhoInicial[m.id] = 0; timersIniciais[m.id] = 0; });
 const itensIniciais = {}; tabelaItens.forEach(i => itensIniciais[i.id] = 0);
+tabelaCarcacas.forEach(i => itensIniciais[i.id] = 0);
 
 // --- ESTADO DO JOGO ---
 export const jogo = reactive({
@@ -117,15 +137,21 @@ export const jogo = reactive({
     ultimoDiaContratacao: null,
     
     
-    alocacaoMina: { ...alocacaoInicial }, // Guarda IDs: { pedra: ['id_joao', null], ... }
-    alocacaoBiblioteca: [null, null, null], // <--- ADICIONE ISSO
     armazens: 0, custoArmazem: { madeira: 150, pedra: 50 },
+    alocacaoMina: { ...alocacaoInicial }, // Guarda IDs: { pedra: ['id_joao', null], ... }
     bancoMinerios: { ...bancoInicial },   // Guarda frações de minério (ex: 0.45)
-    biblioteca: 0, custoBiblioteca: { madeira: 300, pedra: 150, ouro: 50 },
+    biblioteca: 0, custoBiblioteca: { madeira: 300, pedra: 150, ouro: 50 },    
+    alocacaoBiblioteca: [null, null, null], // Slots de estudo na biblioteca
+    camaraProcessamento: 0, custoCamaraProcessamento: { madeira: 1, pedra: 1, ouro: 1 }, // Custo inicial da camara de processamento
+    alocacaoCamaraProcessamento: [null], // Slots de funcionarios na camara de processamento ( 1 slot por enquanto )
+    processamento: Array(8).fill({ item: null, tempoTotal: 0, tempoRestante: 0, progresso: 0 }), // 8 slots de processamento de carcaças
+
     casas: 0, custoCasa: { madeira: 50, pedra: 10 },
     construindo: { tipo: null, tempoRestante: 0, tempoTotal: 0 },
     craftando: [], // Mudou de objeto {} para lista []
-    desempregados: 0, lenhadores: 0, cacadores: 0, academicos: 0, mineradores: 0, populacaoMax: 5,
+    desempregados: 0, lenhadores: 0, esfoladores: 0, academicos: 0, mineradores: 0, populacaoMax: 5,
+    enfermaria: 0, custoEnfermaria: { madeira: 400, pedra: 200 },
+    alocacaoEnfermaria: [null], // Slots de funcionarios na enfermaria ( 1 slot por enquanto )
     estudos: [
         { item: null, tempoTotal: 0, tempoRestante: 0, progresso: 0 }, // Slot 0 (Principal)
         { item: null, tempoTotal: 0, tempoRestante: 0, progresso: 0 }, // Slot 1 (Fila 1)
@@ -275,6 +301,9 @@ function finalizarCraft(index) {
 function processarOffline(segundosOffline) {
     if (segundosOffline <= 0) return;
     
+    // console.log(`Processando ${segundosOffline}s offline...`);
+
+    // --- 1. MINERAÇÃO (Lógica Antiga Mantida) ---
     const minutosOffline = segundosOffline / 60;
     const eficiencia = 0.8; // 80%
 
@@ -285,6 +314,66 @@ function processarOffline(segundosOffline) {
             jogo.minerios[m.id] = Math.min((jogo.minerios[m.id] || 0) + Math.floor(totalGerado), limites.recursos);
         }
     });
+
+    // --- 2. CÂMARA DE PROCESSAMENTO (NOVA LÓGICA DE FILA) ---
+    // Clonamos o tempo total disponível para gastar na fila
+    let tempoParaGastar = segundosOffline * 0.8;
+
+    // Proteção: Limite máximo de 24h offline para não travar o loop se o cara ficar 1 ano fora
+    if (tempoParaGastar > 86400) tempoParaGastar = 86400; 
+
+    // Loop enquanto tivermos tempo E houver algo na mesa ou na fila
+    while (tempoParaGastar > 0) {
+        
+        // 1. Verifica se a mesa está vazia, mas tem alguém na fila esperando
+        if (!jogo.processamento[0].item && jogo.processamento[1].item) {
+            jogo.processamento.shift();
+            jogo.processamento.push({ item: null, tempoTotal: 0, tempoRestante: 0, progresso: 0 });
+        }
+
+        const slotAtual = jogo.processamento[0];
+
+        // Se não tem nada na mesa, acabou o trabalho. Para o loop.
+        if (!slotAtual || !slotAtual.item) break;
+
+        // 2. Calcula velocidade do funcionário (se tiver esfolador, é mais rápido)
+
+        // 3. Simula o processamento
+        // Quanto tempo REAL leva para terminar este item?
+        // Ex: Falta 10s, velocidade 2x -> Leva 5 segundos reais.
+        const segundosReaisNecessarios = slotAtual.tempoRestante;
+
+        if (tempoParaGastar >= segundosReaisNecessarios) {
+            // CENÁRIO A: Temos tempo para terminar este item COMPLETO
+            
+            // Consome o tempo do nosso banco de horas
+            tempoParaGastar -= segundosReaisNecessarios;
+
+            // Entrega recompensas
+            const receita = tabelaCarcacas.find(c => c.id === slotAtual.item);
+            if (receita) {
+                jogo.comida += (receita.recursos.carne || 0);
+                jogo.couro = Math.min(jogo.couro + (receita.recursos.couro || 0), limites.recursos);
+            }
+
+            // Remove o item e puxa o próximo (faz a fila andar)
+            jogo.processamento.shift();
+            jogo.processamento.push({ item: null, tempoTotal: 0, tempoRestante: 0, progresso: 0 });
+
+        } else {
+            // CENÁRIO B: O tempo acabou no meio do corte
+            
+            // Avança o progresso o máximo que der
+            const progressoFeito = tempoParaGastar; // Progresso 1:1;
+            slotAtual.tempoRestante -= progressoFeito;
+            
+            // Atualiza visual da barra (opcional aqui, mas bom pra garantir)
+            slotAtual.progresso = 100 - ((slotAtual.tempoRestante / slotAtual.tempoTotal) * 100);
+
+            // Zera o tempo disponível para sair do loop
+            tempoParaGastar = 0;
+        }
+    }
 }
 // --- NOVA FUNÇÃO DE BUFF RACIAL DO PREFEITO ---
 export function obterBuffRaca(func) {
@@ -725,7 +814,7 @@ export const acoes = {
         else if (qtd === -1 && jogo.trabalhoMina[id] > 0) jogo.trabalhoMina[id]--;
     },
     gerenciarTrabalho(prof, qtd) {
-        const mapa = { lenhador: 'lenhadores', minerador: 'mineradores', cacador: 'cacadores', academico: 'academicos' };
+        const mapa = { lenhador: 'lenhadores', minerador: 'mineradores', esfolador: 'esfoladores', academico: 'academicos' };
         const p = mapa[prof];
         if (qtd === -1 && jogo[p] > 0) {
             if (prof === 'minerador' && (jogo.mineradores - mineradoresOcupados.value) <= 0) return mostrarAviso("Erro", "Mineradores trabalhando.");
@@ -776,7 +865,31 @@ export const acoes = {
     hack() { jogo.ouro += 100000000; jogo.madeira += 100000; jogo.comida += 100000; jogo.couro += 1000; Object.keys(jogo.minerios).forEach(k => jogo.minerios[k] += 1000); jogo.poMistico = (jogo.poMistico || 0) + 1000; 
     jogo.pedra_up_comum = (jogo.pedra_up_comum || 0) + 50;
     jogo.pedra_up_rara = (jogo.pedra_up_rara || 0) + 50;
-    jogo.pedra_up_mitica = (jogo.pedra_up_mitica || 0) + 50;},
+    jogo.pedra_up_mitica = (jogo.pedra_up_mitica || 0) + 50;
+    jogo.itens.carcaca_javali = (jogo.itens.carcaca_javali || 0) + 5;
+    jogo.itens.carcaca_lobo = (jogo.itens.carcaca_lobo || 0) + 5;
+    jogo.itens.carcaca_touro = (jogo.itens.carcaca_touro || 0) + 5;
+    jogo.itens.carcaca_touro2 = (jogo.itens.carcaca_touro2 || 0) + 5;
+    jogo.itens.carcaca_touro3 = (jogo.itens.carcaca_touro3 || 0) + 5;
+    jogo.itens.javali_da_vila = (jogo.itens.javali_da_vila || 0) + 5;
+    jogo.itens.tatu_pedra = (jogo.itens.tatu_pedra || 0) + 5;
+    jogo.itens.besouro_rinoceronte = (jogo.itens.besouro_rinoceronte || 0) + 5;
+    jogo.itens.javali_de_granito = (jogo.itens.javali_de_granito || 0) + 5;
+    jogo.itens.basilisco = (jogo.itens.basilisco || 0) + 5;
+    jogo.itens.lagarto_de_brasa = (jogo.itens.lagarto_de_brasa || 0) + 5;
+    jogo.itens.sand_scorpion = (jogo.itens.sand_scorpion || 0) + 5;
+    jogo.itens.magma_hyena = (jogo.itens.magma_hyena || 0) + 5;
+    jogo.itens.salamandra = (jogo.itens.salamandra || 0) + 5;
+    jogo.itens.fire_serpe = (jogo.itens.fire_serpe || 0) + 5;
+    jogo.itens.snow_fox = (jogo.itens.snow_fox || 0) + 5;
+    // remedios
+    jogo.itens.bandagem = (jogo.itens.bandagem || 0) +5;
+    jogo.itens.pocao_vida_p = (jogo.itens.pocao_vida_p || 0) +5;
+    jogo.itens.ervas_medicinais = (jogo.itens.ervas_medicinais || 0) +5;
+    jogo.itens.talisma_cura = (jogo.itens.talisma_cura || 0) +5;
+
+},
+    
     // HACK DE CONSTRUÇÕES
     hackConstrucoes() {
         // Aumenta o nível dos prédios principais
@@ -784,6 +897,9 @@ export const acoes = {
         jogo.mina++;
         jogo.ferraria++;
         jogo.taverna++;
+        jogo.camaraProcessamento++;
+        jogo.biblioteca++;
+        jogo.enfermaria++;
         
         // Adiciona casas e armazéns extras
         jogo.casas += 2;
@@ -794,8 +910,6 @@ export const acoes = {
         
         // Aumenta população máxima (para acompanhar as casas novas)
         jogo.populacaoMax += 4; 
-
-        mostrarAviso("HACK ATIVADO", "Todas as construções subiram de nível! 🏗️", "sucesso");
     },
     // HACK DE RECURSOS
     resetarRecursos() {
@@ -894,6 +1008,63 @@ export function iniciarLoop() {
                 }
             }
         }
+        // -----------------------------------------------------
+        // Fim do sistema de fila da biblioteca
+        // ----------------------------------------------------
+
+        // --- PROCESSAMENTO DE CARCAÇAS (NOVO) ---
+        if (jogo.processamento && jogo.processamento.length > 0) {
+            
+            // Lógica de puxar da fila (Delay de 5s se estiver vazio no centro)
+            if (!jogo.processamento[0].item && jogo.processamento[1].item) {
+                // Usa uma variável temporária para delay ou puxa direto. 
+                // Para simplificar, vamos puxar direto por enquanto:
+                jogo.processamento.shift();
+                jogo.processamento.push({ item: null, tempoTotal: 0, tempoRestante: 0, progresso: 0 });
+            }
+
+            const slotCarne = jogo.processamento[0];
+            
+            // Se tem carcaça sendo processada
+            if (slotCarne && slotCarne.item) {
+                
+                // Calcula velocidade baseada no funcionário alocado
+                let velocidade = 1;
+                // PROCURA AUTOMÁTICA (Igual à tela): Pega o primeiro esfolador disponível
+                const func = jogo.funcionarios.find(f => f.profissao === 'esfolador' && f.diasEmGreve === 0);
+
+                if (func) {
+                    // Aplica o bônus simples
+                    velocidade += func.bonus;
+                    
+                    // (Opcional) Se quiser aplicar o buff racial do prefeito aqui também, igual na tela:
+                    const pctBuff = obterBuffRaca(func); 
+                    const multiplicadorRaca = 1 + (pctBuff / 100);
+                    // Ajuste a fórmula de velocidade conforme seu balanceamento desejado
+                    // Exemplo: velocidade = velocidade * multiplicadorRaca;
+                }
+                // Aplica a velocidade ao tempo restante
+                slotCarne.tempoRestante -= deltaSegundos;
+                slotCarne.progresso = 100 - ((slotCarne.tempoRestante / slotCarne.tempoTotal) * 100);
+
+                // Terminou o processamento?
+                if (slotCarne.tempoRestante <= 0) {
+                    const receita = tabelaCarcacas.find(c => c.id === slotCarne.item);
+                    if (receita) {
+                        // ENTREGAR RECOMPENSAS
+                        jogo.comida += (receita.recursos.carne || 0);
+                        jogo.couro = Math.min(jogo.couro + (receita.recursos.couro || 0), limites.recursos);
+                        // console.log(`Processado: +${receita.carne} carne, +${receita.couro} couro`);
+                    }
+                    
+                    // Remove item atual e puxa a fila
+                    jogo.processamento.shift();
+                    jogo.processamento.push({ item: null, tempoTotal: 0, tempoRestante: 0, progresso: 0 });
+                }
+            }
+        }
+
+        // Limites gerais
 
         const lim = limites.recursos;
         
@@ -941,11 +1112,7 @@ export function iniciarLoop() {
         // --- RECURSOS BÁSICOS (COMIDA/MADEIRA) ---
         // Mantido simples (por tick) ou pode usar deltaSegundos também para precisão
         const cons = populacaoTotal.value;
-        const prodCarne = calcularProducaoTotal('cacador') * 2;
-        jogo.comida = Math.max(0, jogo.comida + (prodCarne - cons) * deltaSegundos); // Ajustado para Delta
-        
-        const prodCouro = calcularProducaoTotal('cacador') * 0.2;
-        if (prodCouro > 0) jogo.couro = Math.min(jogo.couro + (prodCouro * deltaSegundos), lim);
+        //jogo.comida = Math.max(0, jogo.comida - (cons * deltaSegundos)); // Consome comida proporcional ao tempo passado
         
         const prodMadeira = calcularProducaoTotal('lenhador');
         if (prodMadeira > 0) {

@@ -1,7 +1,7 @@
 <script setup>
   import { ref, computed, onMounted, onUnmounted } from 'vue';
   import { jogo, acoes, ui, populacaoTotal, custoContratacao, bonusSorteTotal, limites, obterBuffRaca } from '../jogo.js';
-  import { ORDEM_TIERS, DESBLOQUEIO_POR_NIVEL, obterProbabilidades, CLASSES_RPG } from '../funcionarios.js';
+  import { ORDEM_TIERS, DESBLOQUEIO_POR_NIVEL, obterProbabilidades, CLASSES_RPG, corTier } from '../funcionarios.js';
   
 
     const mostrarBotaoTopo = ref(false);
@@ -106,7 +106,7 @@ const resultadoFusao = ref(null);
   const opcoesProfissoes = [
       { v: 'minerador', t: 'Minerador' },
       { v: 'lenhador',  t: 'Lenhador' },
-      { v: 'cacador',   t: 'Caçador' },
+      { v: 'esfolador',   t: 'Esfolador' },
       { v: 'academico', t: 'Acadêmico' },
       { v: 'batedor',   t: 'Batedor' },
       { v: 'saqueador', t: 'Saqueador' },
@@ -202,14 +202,14 @@ const resultadoFusao = ref(null);
             // Mantidos (Sem alteração solicitada)
             'minerador': { m: 'Minerador', f: 'Mineradora' },
             'lenhador':  { m: 'Lenhador',  f: 'Lenhadora' },
-            'cacador':   { m: 'Caçador',   f: 'Caçadora' },
+            'esfolador':   { m: 'Esfolador',   f: 'Esfoladora' },
             'ferreiro':  { m: 'Ferreiro',  f: 'Ferreira' },
             'saqueador': { m: 'Saqueador',  f: 'Saqueadora' },
             'batedor':   { m: 'Batedor',    f: 'Batedora' },
             'heroi': { m: 'Herói', f: 'Heroína' },
             'academico':     { m: 'Acadêmico',   f: 'Acadêmica' },
             'administrador': { m: 'Administrador', f: 'Administradora' },
-            'curandeiro':    { m: 'Curandeiro',  f: 'Curandeira' },
+            'enfermeiro':    { m: 'Enfermeiro',  f: 'Enfermeira' },
             'lorde':         { m: 'Lorde',       f: 'Lady' },
             'tesoureiro':    { m: 'Tesoureiro',  f: 'Tesoureira' }
         };
@@ -222,7 +222,7 @@ const resultadoFusao = ref(null);
         'gerente': 'administrador',
         'prefeito': 'lorde',
         'bancario': 'tesoureiro',
-        'medico': 'curandeiro',
+        'medico': 'enfermeiro',
         'cientista': 'academico'
     };
     // Se estiver no mapa, retorna o novo nome. Se não, usa o ID original (ex: minerador)
@@ -277,7 +277,7 @@ const resultadoFusao = ref(null);
       
       // Lista atualizada de proibidos (inclui todos os especiais)
       const proibidos = [
-          'ferreiro', 'administrador', 'lorde', 'tesoureiro', 'curandeiro'
+          'ferreiro', 'administrador', 'lorde', 'tesoureiro', 'enfermeiro'
       ];
       
       const lista = jogo.funcionarios.filter(f => {
@@ -369,7 +369,7 @@ const fecharResultadoFusao = () => {
       // --- COMUNS (Nível 1) ---
       { id: 'minerador', nome: 'Minerador', req: 1, desc: 'Trabalha na Mina extraindo recursos.', stat: 'Bônus de Produção (Minérios).' },
       { id: 'lenhador', nome: 'Lenhador', req: 1, desc: 'Trabalha na Floresta cortando madeira.', stat: 'Bônus de Produção (Madeira).' },
-      { id: 'cacador', nome: 'Caçador', req: 1, desc: 'Obtém comida e couro na Floresta.', stat: 'Bônus de Produção (Comida/Couro).' },
+      { id: 'esfolador', nome: 'Esfolador', req: 1, desc: 'Responsavel pela Camara de Processamento.', stat: 'Bônus de Produção (Comida/Couro).' },
       { id: 'cientista', nome: 'Acadêmico', req: 1, desc: 'Gera pontos de estudo na Academia.', stat: 'Bônus de Produção (Estudo).' },
       { id: 'heroi', nome: 'Herói', req: 1, desc: 'Lidera exércitos (Futuro). Possui atributos de combate.', stat: 'Atributos de Batalha (Ataque/Defesa).' },
       { id: 'batedor', nome: 'Batedor', req: 1, desc: 'Explorador ágil.', stat: 'Percepção: Aumenta chance de encontrar itens raros em explorações.' },
@@ -380,7 +380,7 @@ const fecharResultadoFusao = () => {
       { id: 'bancario', nome: 'Tesoureiro', req: 2, desc: 'Gera juros sobre o seu ouro total.', stat: 'Finanças: % de ouro gerado por hora.' },
       { id: 'ferreiro', nome: 'Ferreiro', req: 3, desc: 'Reduz o tempo de fabricação de itens.', stat: 'Produtividade: % de redução no tempo de craft.' },
       { id: 'prefeito', nome: 'Lorde', req: 4, desc: 'Reduz custos de construções e buffa a própria raça.', stat: 'Gestão: % de desconto em construções + Buff Racial.' },
-      { id: 'medico', nome: 'Curandeiro', req: 5, desc: 'Cura feridos mais rápido.', stat: 'Medicina: % de velocidade na recuperação.' },
+      { id: 'medico', nome: 'Enfermeiro', req: 5, desc: 'Cura feridos mais rápido.', stat: 'Medicina: % de velocidade na recuperação.' },
       { id: 'gerente', nome: 'Administrador', req: 6, desc: 'Influencia a Guilda dos Trabalhadores para atrair melhores candidatos.', stat: 'Influência: Aumenta a sorte no recrutamento e fusão.' }    
   ];
   // --- CONTROLE DO CATÁLOGO ---
@@ -413,15 +413,13 @@ const fecharResultadoFusao = () => {
   const labelsEspeciais = {
       administrador: 'Influência', // Alterado de 'gerente'
       batedor: 'Percepção',
-      curandeiro: 'Medicina',      // Alterado de 'medico'
+      enfermeiro: 'Medicina',      // Alterado de 'medico'
       ferreiro: 'Produtividade',
       lorde: 'Gestão',             // Alterado de 'prefeito'
       tesoureiro: 'Finanças',      // Alterado de 'bancario'
       saqueador: 'Pilhagem'
   };
 
-  const corTier = (t) => ({'F':'#8A8A8A','E':'#659665','D':'#71c404','C':'#475fad','B':'#0233d1','A':'#8e44ad','S':'#f1c40f','SS':'#0fbdd1'}[t] || '#000');
-  
   const getCorSelecao = (tierAtual) => {
       const idx = ORDEM_TIERS.indexOf(tierAtual);
       if (idx !== -1 && idx < ORDEM_TIERS.length - 1) {

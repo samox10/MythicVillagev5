@@ -1,12 +1,12 @@
 <script setup>
 import { ref, computed } from 'vue';
 import { jogo, DADOS_ESTUDO, mostrarAviso, obterBuffRaca } from '../jogo.js'; // Importe DADOS_ESTUDO
+import { corTier } from '../funcionarios.js';
 
 const equipeExpandida = ref(false); // Começa "true" (Aberto)
 // Verifica se tem QUALQUER slot com item sendo estudado
 const temPesquisaAtiva = computed(() => jogo.estudos.some(s => s.item !== null));
 // --- ESTADO LOCAL ---
-const corTier = (t) => ({'F':'#8A8A8A','E':'#659665','D':'#71c404','C':'#475fad','B':'#0233d1','A':'#8e44ad','S':'#f1c40f','SS':'#0fbdd1'}[t] || '#000');
 const formatarNumero = (n) => n ? Number(n).toLocaleString('pt-BR') : '0';
 const modalItemAberto = ref(false);
 // --- FUNÇÕES VISUAIS RPG (NOVO) ---

@@ -32,7 +32,8 @@ body {
   import Taverna from './components/Taverna.vue';
   import Mina from './components/Mina.vue';
   import Ferraria from './components/Ferraria.vue';
-  import Inventario from './components/Inventario.vue';
+  import CamaraProcessamento from './components/CamaraProcessamento.vue';
+  import Enfermaria from './components/Enfermaria.vue';
   import Modal from './components/Modal.vue';
   import Biblioteca from './components/Biblioteca.vue';
 
@@ -157,13 +158,14 @@ body {
             <div v-if="menuAberto === 'producao'" class="dropdown-menu-clean">
                 <button @click="selecionarOpcao('producao', 'mina')">⛏️ Mina</button>
                 <button @click="selecionarOpcao('producao', 'ferraria')">⚔️ Ferraria</button>
+                <button @click="selecionarOpcao('producao', 'camara_processamento')">🗡️ Câmara de Processamento</button>
             </div>
         </Transition>
       </div>
 
       <div class="nav-item">
-        <button class="nav-btn-clean" :class="{ ativo: categoriaAtual === 'inventario' }" @click="navegarDireto('inventario', 'itens')" title="Seu Inventário">
-          🎒 <span class="nav-label"></span>
+        <button class="nav-btn-clean" :class="{ ativo: categoriaAtual === 'enfermaria' }" @click="navegarDireto('enfermaria', 'itens')" title="Ala médica">
+           <span class="nav-label"><img src="/assets/ui/i_enfermeiro.png" class="nav-icon" alt="🏥"></span>
         </button>
       </div>
 
@@ -186,9 +188,10 @@ body {
       
       <Mina v-if="abaAtual === 'mina' && categoriaAtual === 'producao'" />
       <Ferraria v-if="abaAtual === 'ferraria' && categoriaAtual === 'producao'" />
+      <CamaraProcessamento v-if="abaAtual === 'camara_processamento' && categoriaAtual === 'producao'" />
       
       <Taverna v-if="abaAtual === 'geral' && categoriaAtual === 'taverna'" />
-      <Inventario v-if="abaAtual === 'itens' && categoriaAtual === 'inventario'" />
+      <Enfermaria v-if="abaAtual === 'itens' && categoriaAtual === 'enfermaria'" />
       <Biblioteca v-if="abaAtual === 'biblioteca' && categoriaAtual === 'biblioteca'" />
     </div>
 
@@ -462,6 +465,12 @@ body {
     padding: 6px 12px; font-size: 0.75em; border-radius: 6px; cursor: pointer; font-weight: bold;
 }
 .btn-reset-hard:hover { background: #c0392b; color: white; }
+.nav-icon {
+    width: 24px;   /* Tamanho do ícone */
+    height: 24px;
+    object-fit: contain;
+    margin-bottom: 2px;
+}
 
 /* --- TRANSIÇÕES --- */
 .animacao-entrada { animation: fadeIn 0.5s ease; }

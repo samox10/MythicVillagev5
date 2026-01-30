@@ -115,3 +115,353 @@ export const DB_PEDRAS = {
         }
     ]
 };
+
+// ------------------------------------------
+// FIM SISTEMA DE APRIMORAMENTO DE ITENS
+// ------------------------------------------
+
+// ------------------------------------------
+// TABELA DE CARCAÇAS
+// ------------------------------------------
+export const tabelaCarcacas = [
+  { 
+    id: 'besouro_rinoceronte', nome: 'Besouro Rinoceronte', // NOME DA CARCAÇA
+    tipo: 'recurso', categoria: 'carcaca',
+    img: '/assets/monstros/besouro_rinoceronte.png', // IMAGEM DO MONSTRO NOS BOTOES
+    imgCorpo: '/assets/monstros/besouro_rinoceronte.png', // IMAGEM DA CARCAÇA EM CIMA DA MESA DE PROCESSAMENTO
+    desc: 'Pode ser processada para obter carne e couro.',
+    tempo: 10, // TEMPO EM SEGUNDOS PARA PROCESSAR ESSA CARCAÇA
+    recursos: { carne: 50, couro: 10 }, // RECURSOS OBTIDOS AO PROCESSAR ESSA CARCAÇA
+    ambiente: 'Floresta Densa', // AMBIENTE ONDE É POSSÍVEL CAÇAR ESSA CARCAÇA
+    tamanhoVisual: 200, // TAMANHO DA CARCAÇA NA MESA DE PROCESSAMENTO (PC)
+    tamanhoMobile: 150, // TAMANHO DA CARCAÇA NA MESA DE PROCESSAMENTO (MOBILE)
+    rotacaoVisual: 20, // ROTAÇÃO DA CARCAÇA NA MESA DE PROCESSAMENTO (PC)
+    rotacaoMobile: 20, // ROTAÇÃO DA CARCAÇA NA MESA DE PROCESSAMENTO (MOBILE)
+    paddingVisual: 165, // POSICIONAMENTO VERTICAL NA MESA DE PROCESSAMENTO (PC) + SOBE - DESCE
+    paddingMobile: 165, // POSICIONAMENTO VERTICAL NA MESA DE PROCESSAMENTO (MOBILE)
+    nivelRequerido: 1 // NÍVEL QUE LIBERA MISSAO PRA CAÇAR ESSA CARCAÇA
+  },
+  { 
+    id: 'tatu_pedra', nome: 'Tatu Pedra', 
+    tipo: 'recurso', categoria: 'carcaca',
+    img: '/assets/monstros/tatu_pedra.png', 
+    imgCorpo: '/assets/monstros/tatu_pedra.png',
+    desc: 'Couro resistente e carne fibrosa.',
+    tempo: 20, // 20 segundos
+    recursos: { carne: 30, couro: 25 },
+    ambiente: 'Montanhas Nevadas',
+    tamanhoVisual: 160,
+    tamanhoMobile: 150,
+    rotacaoVisual: 20,
+    rotacaoMobile: 20,
+    paddingVisual: 165,
+    paddingMobile: 165,
+    nivelRequerido: 1
+  },
+  { 
+    id: 'javali_da_vila', nome: 'Javali da Vila', 
+    tipo: 'recurso', categoria: 'carcaca',
+    img: '/assets/monstros/javali_da_vila.png', 
+    imgCorpo: '/assets/monstros/javali_da_vila.png',
+    desc: 'Uma enorme fonte de recursos.',
+    tempo: 40, // 40 segundos
+    recursos: { carne: 120, couro: 40 },
+    ambiente: 'Planícies',
+    tamanhoVisual: 300,
+    tamanhoMobile: 150,
+    rotacaoVisual: 20,
+    rotacaoMobile: 20,
+    paddingVisual: 165,
+    paddingMobile: 165,
+    nivelRequerido: 1
+  },
+  { 
+    id: 'javali_de_granito', nome: 'Javali de Granito', 
+    tipo: 'recurso', categoria: 'carcaca',
+    img: '/assets/monstros/javali_de_granito.png', 
+    imgCorpo: '/assets/monstros/javali_de_granito.png',
+    desc: 'Uma enorme fonte de recursos.',
+    tempo: 40, // 40 segundos
+    recursos: { carne: 120, couro: 40 },
+    ambiente: 'Planícies',
+    tamanhoVisual: 305,
+    tamanhoMobile: 150,
+    rotacaoVisual: 20,
+    rotacaoMobile: 20,
+    paddingVisual: 165,
+    paddingMobile: 165,
+    nivelRequerido: 1
+  },
+  { 
+    id: 'basilisco', nome: 'Basilisco', 
+    tipo: 'recurso', categoria: 'carcaca',
+    img: '/assets/monstros/basilisco.png', 
+    imgCorpo: '/assets/monstros/basilisco.png',
+    desc: 'Uma enorme fonte de recursos.',
+    tempo: 40, // 40 segundos
+    recursos: { carne: 120, couro: 40 },
+    ambiente: 'Planícies',
+    tamanhoVisual: 265,
+    tamanhoMobile: 150,
+    rotacaoVisual: 20,
+    rotacaoMobile: 20,
+    paddingVisual: 165,
+    paddingMobile: 165,
+    nivelRequerido: 10
+  },
+  { 
+    id: 'lagarto_de_brasa', nome: 'Lagarto de Brasa', 
+    tipo: 'recurso', categoria: 'carcaca',
+    img: '/assets/monstros/lagarto_de_brasa.png', 
+    imgCorpo: '/assets/monstros/lagarto_de_brasa.png',
+    desc: 'Uma enorme fonte de recursos.',
+    tempo: 40, // 40 segundos
+    recursos: { carne: 120, couro: 40 },
+    ambiente: 'Planícies',
+    tamanhoVisual: 269,
+    tamanhoMobile: 150,
+    rotacaoVisual: 20,
+    rotacaoMobile: 20,
+    paddingVisual: 165,
+    paddingMobile: 165,
+    nivelRequerido: 7
+  },
+  {
+    id: 'sand_scorpion', nome: 'Escorpião de Areia', 
+    tipo: 'recurso', categoria: 'carcaca',
+    img: '/assets/monstros/sand_scorpion.png', 
+    imgCorpo: '/assets/monstros/sand_scorpion.png',
+    desc: 'Uma enorme fonte de recursos.',
+    tempo: 40, // 40 segundos
+    recursos: { carne: 120, couro: 40 },
+    ambiente: 'Planícies',
+    tamanhoVisual: 200,
+    tamanhoMobile: 150,
+    rotacaoVisual: 20,
+    rotacaoMobile: 20,
+    paddingVisual: 165,
+    paddingMobile: 165,
+    nivelRequerido: 6
+  },
+  {
+    id: 'magma_hyena', nome: 'Hiena de Magma', 
+    tipo: 'recurso', categoria: 'carcaca',
+    img: '/assets/monstros/magma_hyena.png', 
+    imgCorpo: '/assets/monstros/magma_hyena.png',
+    desc: 'Uma enorme fonte de recursos.',
+    tempo: 40, // 40 segundos
+    recursos: { carne: 120, couro: 40 },
+    ambiente: 'Planícies',
+    tamanhoVisual: 290,
+    tamanhoMobile: 150,
+    rotacaoVisual: -20,
+    rotacaoMobile: 20,
+    paddingVisual: 165,
+    paddingMobile: 165,
+    nivelRequerido: 2
+  },
+  {
+    id: 'salamandra', nome: 'Salamandra', 
+    tipo: 'recurso', categoria: 'carcaca',
+    img: '/assets/monstros/salamandra.png', 
+    imgCorpo: '/assets/monstros/salamandra.png',
+    desc: 'Uma enorme fonte de recursos.',
+    tempo: 40, // 40 segundos
+    recursos: { carne: 120, couro: 40 },
+    ambiente: 'Planícies',
+    tamanhoVisual: 250,
+    tamanhoMobile: 150,
+    rotacaoVisual: 20,
+    rotacaoMobile: 20,
+    paddingVisual: 165,
+    paddingMobile: 165,
+    nivelRequerido: 3
+  },
+  {
+    id: 'fire_serpe', nome: 'Serpe de Fogo', 
+    tipo: 'recurso', categoria: 'carcaca',
+    img: '/assets/monstros/fire_serpe.png', 
+    imgCorpo: '/assets/monstros/fire_serpe.png',
+    desc: 'Uma enorme fonte de recursos.',
+    tempo: 40, // 40 segundos
+    recursos: { carne: 120, couro: 40 },
+    ambiente: 'Planícies',
+    tamanhoVisual: 430,
+    tamanhoMobile: 150,
+    rotacaoVisual: 20,
+    rotacaoMobile: 20,
+    paddingVisual: 165,
+    paddingMobile: 165,
+    nivelRequerido: 4
+  },
+  {
+    id: 'snow_fox', nome: 'Raposa de Neve', 
+    tipo: 'recurso', categoria: 'carcaca',
+    img: '/assets/monstros/snow_fox.png', 
+    imgCorpo: '/assets/monstros/snow_fox.png',
+    desc: 'Uma enorme fonte de recursos.',
+    tempo: 40, // 40 segundos
+    recursos: { carne: 120, couro: 40 },
+    ambiente: 'Planícies',
+    tamanhoVisual: 250,
+    tamanhoMobile: 150,
+    rotacaoVisual: -25,
+    rotacaoMobile: 20,
+    paddingVisual: 175,
+    paddingMobile: 175,
+    nivelRequerido: 5
+  }
+];
+// ------------------------------------------
+// FIM TABELA DE CARCAÇAS
+// ------------------------------------------
+// ------------------------------------------
+// CATALOGO DE MEDICAMENTOS (ENFERMARIA)
+// ------------------------------------------
+export const catalogoMedicamentos = [
+    // --- CATEGORIA: BANDAGEM ---
+    { 
+        id: 'bandagem_comum', 
+        categoria: 'bandagem', // <--- NOVA PROPRIEDADE
+        fatorCura: 1.0,        // <--- Velocidade Base
+        nome: 'Bandagem Comum', 
+        icon: '🤕',
+        desc: 'Pano limpo para estancar sangue.',
+        funcao: 'Essencial para cortes.',
+        poder: 'Tempo de cura padrão (1x).',
+        onde: 'Crafting (Tecelão)',
+        nivelReq: 1 
+    },
+    { 
+        id: 'bandagem_premium', 
+        categoria: 'bandagem', 
+        fatorCura: 1.5,        // <--- 50% mais rápido
+        nome: 'Bandagem de Seda', 
+        icon: '🎗️',
+        desc: 'Tecido tratado com aloe vera.',
+        funcao: 'Cicatrização acelerada.',
+        poder: 'Acelera cura em 1.5x.',
+        onde: 'Crafting (Tecelão Nv.2)',
+        nivelReq: 3 
+    },
+
+    // --- CATEGORIA: POÇÃO ---
+    { 
+        id: 'pocao_vida_p', 
+        categoria: 'pocao',
+        fatorCura: 1.0,
+        nome: 'Poção de Vida (P)', 
+        icon: '🧪',
+        desc: 'Líquido vermelho básico.',
+        funcao: 'Restaura vitalidade.',
+        poder: 'Tempo de cura padrão (1x).',
+        onde: 'Laboratório de Alquimia',
+        nivelReq: 2 
+    },
+    { 
+        id: 'pocao_vida_m', 
+        categoria: 'pocao',
+        fatorCura: 2.0,        // <--- 2x mais rápido
+        nome: 'Poção de Vida (M)', 
+        icon: '🍷',
+        desc: 'Concentrado vital potente.',
+        funcao: 'Regeneração celular rápida.',
+        poder: 'Acelera cura em 2.0x.',
+        onde: 'Laboratório de Alquimia (Nv.3)',
+        nivelReq: 5 
+    },
+
+    // --- CATEGORIA: ERVAS ---
+    { 
+        id: 'ervas_comuns', 
+        categoria: 'ervas',
+        fatorCura: 1.0,
+        nome: 'Ervas Medicinais', 
+        icon: '🌿',
+        desc: 'Plantas da floresta.',
+        funcao: 'Trata infecções leves.',
+        poder: 'Tempo de cura padrão (1x).',
+        onde: 'Coleta na Floresta',
+        nivelReq: 1 
+    }
+];
+// ------------------------------------------
+// FIM CATALOGO DE MEDICAMENTOS (ENFERMARIA)
+// ------------------------------------------
+// ------------------------------------------
+// TIPOS DE FERIMENTOS E DOENÇAS
+// ------------------------------------------
+export const tiposFerimentos = {
+    'corte_leve': {
+        nome: 'Corte Leve',
+        tempoBase: 60, // 60 segundos
+        reqCategoria: 'bandagem', // Precisa de QUALQUER bandagem
+        desc: 'Ferimento superficial causado por lâminas ou espinhos.'
+    },
+    'fratura_exposta': {
+        nome: 'Fratura Exposta',
+        tempoBase: 300, // 5 minutos
+        reqCategoria: 'pocao', // Precisa de QUALQUER poção
+        desc: 'Osso quebrado visível. Requer regeneração mágica.'
+    },
+    'infeccao_grave': {
+        nome: 'Infecção Grave',
+        tempoBase: 600, // 10 minutos
+        reqCategoria: 'ervas', // Precisa de ervas
+        desc: 'Febre alta e ferida purulenta.'
+    },
+    'trauma_batalha': {
+        nome: 'Trauma de Batalha',
+        tempoBase: 1200, // 20 minutos
+        reqCategoria: 'bandagem', // Exige bandagem (mas se usar a premium vai curar muito rápido)
+        desc: 'Múltiplos ferimentos causados por combate intenso.'
+    }
+};
+// ------------------------------------------
+// FIM TIPOS DE FERIMENTOS E DOENÇAS
+// ------------------------------------------
+// ------------------------------------------
+// INFO DAS CATEGORIAS MEDICAMENTOS
+// ------------------------------------------
+export const infoCategorias = {
+    'bandagem': {
+        nome: 'Curativos',
+        icon: '🩹',
+        desc: 'Materiais para estancar sangramentos e fechar cortes.\nEssenciais para traumas físicos.'
+    },
+    'pocao': {
+        nome: 'Poções',
+        icon: '🧪',
+        desc: 'Compostos alquímicos para regeneração acelerada.\nTratam fraturas e danos internos.'
+    },
+    'ervas': {
+        nome: 'Ervas',
+        icon: '🌿',
+        desc: 'Plantas naturais para combater infecções e febres.\nCura lenta, mas segura.'
+    },
+    'talas': {
+        nome: 'Talas',
+        icon: '🩻',
+        desc: 'Plantas naturais para combater infecções e febres.\nCura lenta, mas segura.'
+    },
+    'pomadas': {
+        nome: 'Pomadas',
+        icon: '🧴',
+        desc: 'Plantas naturais para combater infecções e febres.\nCura lenta, mas segura.'
+    },
+    'antidotos': {
+        nome: 'Antídotos',
+        icon: '☠️',
+        desc: 'Plantas naturais para combater infecções e febres.\nCura lenta, mas segura.'
+    },
+    'tonicos': {
+        nome: 'Tônico',
+        icon: '⚗️',
+        desc: 'Plantas naturais para combater infecções e febres.\nCura lenta, mas segura.'
+    },
+    'comprimidos': {
+        nome: 'Comprimidos',
+        icon: '💊',
+        desc: 'Plantas naturais para combater infecções e febres.\nCura lenta, mas segura.'
+    }
+};
