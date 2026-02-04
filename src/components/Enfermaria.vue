@@ -1,17 +1,12 @@
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
-import { jogo, mostrarAviso, obterBuffRaca } from '../jogo.js';
-import { corTier } from '../funcionarios.js';
-import { catalogoMedicamentos, tiposFerimentos, infoCategorias } from '../dados.js';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { jogo, mostrarAviso, obterBuffRaca, salvarNaNuvem } from '../jogo.js';
+import { corTier, nomeProfissao } from '../funcionarios.js';
+import { catalogoMedicamentos, tiposFerimentos, infoCategorias} from '../dados.js';
+import { formatarTempo, formatarNumero } from '../utilidades.js';
 
 const abaAtual = ref('tratamento');
 const mostrarBotaoTopo = ref(false);
-// Define qual item está ativo para cada categoria
-const loadout = reactive({
-    'bandagem': 'bandagem_comum', // Item padrão inicial
-    'pocao': 'pocao_vida_p',
-    'ervas': 'ervas_comuns'
-});
 // Controle do Modal de Troca (Menu de Seleção)
 const modalTrocaAberto = ref(false);
 const categoriaParaTrocar = ref(null);
@@ -48,6 +43,7 @@ const abrirTroca = (catKey) => {
 // 3. Efetua a Troca (Ao clicar num item da lista)
 const selecionarItem = (item) => {
     loadout[item.categoria] = item.id; // Salva a escolha
+    salvarNaNuvem();
     modalTrocaAberto.value = false;    // Fecha o menu
     categoriaParaTrocar.value = null;
 };
@@ -75,172 +71,97 @@ onUnmounted(() => {
 });
 // --- 1. LÓGICA DO FUNCIONÁRIO ---
 const enfermeiroAtivo = computed(() => {
-    // Procura o primeiro enfermeiro que NÃO esteja em greve
-    const profissional = jogo.funcionarios.find(f => f.profissao === 'enfermeiro' && f.diasEmGreve === 0);
-    
-    if (profissional) {
-        // Calcula o buff racial
-        const buffPct = obterBuffRaca(profissional);
-        const poderFinal = (profissional.bonus * (1 + (buffPct / 100)));
-
-        return {
-            tipo: 'profissional',
-            nome: profissional.nome,
-            raca: profissional.raca,
-            sexo: profissional.sexo,
-            imagem: profissional.imagem,
-            tier: profissional.tier,
-            poder: poderFinal.toFixed(2),
-            salario: profissional.salario,
-            frase: profissional.frase,
-            profissao: profissional.profissao,
-            nomeProfissao: profissional.sexo === 'masculino' ? 'Enfermeiro' : 'Enfermeira',
-        };
-    } 
-    // CORREÇÃO: Retorna null se não tiver profissional, para ativar o v-else do Ajudante corretamente
-    return null;
+    return jogo.funcionarios.find(f => f.profissao === 'enfermeiro' && f.diasEmGreve === 0);
 });
 
 const statsEnfermeiro = computed(() => {
-    // Proteção: Se não tiver enfermeiro, retorna valor padrão
-    if (!enfermeiroAtivo.value) return { tempo: '1.00' };
+    if (!enfermeiroAtivo.value) {
+        return { 
+            reducaoReal: 0, 
+            textoDisplay: '0%', 
+            fatorMultiplicador: 1 // Tempo x 1 (Normal)
+        };
+    }
     
+    const prof = enfermeiroAtivo.value;
+    
+    // Calcula Buff Racial
+    const buffPct = obterBuffRaca(prof);
+    const fatorRaca = 1 + (buffPct / 100);
+    
+    // Pega a MEDICINA (poderEspecial) em vez do Bonus
+    const medicinaBase = prof.poderEspecial || 0;
+    
+    // Calcula redução final (Ex: 30 * 1.1 = 33%)
+    const reducaoFinal = Math.min(90, medicinaBase * fatorRaca);
+
     return {
-        tempo: enfermeiroAtivo.value.poder
+        reducaoReal: reducaoFinal,
+        textoDisplay: parseFloat(reducaoFinal.toFixed(1)) + '%',
+        // Fator para multiplicar o tempo (Ex: 100% - 33% = 0.67)
+        fatorMultiplicador: (1 - (reducaoFinal / 100))
     };
 });
-const formatarNumero = (num) => {
-    return num ? num.toLocaleString('pt-BR') : '0';
-};
-// Função nova para transformar segundos em 1h 30m 10s
-const formatarTempo = (segundos) => {
-    if (segundos < 0) segundos = 0;
-    
-    const sTotal = Math.floor(segundos);
-    const h = Math.floor(sTotal / 3600);
-    const m = Math.floor((sTotal % 3600) / 60);
-    const s = sTotal % 60;
-
-    if (h > 0) return `${h}h ${m}m ${s}s`;
-    if (m > 0) return `${m}m ${s}s`;
-    return `${s}s`;
-};
-// Função para abrir o Modal com os detalhes
-const verDetalhesItem = (item) => {
-    const qtdAtual = jogo.itens[item.id] || 0;
-    
-    // Adicionei a linha do Nível Necessário
-    const textoDetalhes = `
-    📦 Em Estoque: ${qtdAtual}
-    🔒 Nível Necessário: ${item.nivelReq}
-    
-    ✨ Função: ${item.funcao}
-    ⚡ Poder: ${item.poder}
-    
-    📍 Onde conseguir:
-    ${item.onde}
-    
-    📖 Descrição:
-    "${item.desc}"
-    `;
-
-    mostrarAviso(item.nome, textoDetalhes, 'confirmacao');
-};
-
-
-
-
-// --- PROTÓTIPOS --- //
-
-
-// Função auxiliar para calcular a cor da barra de estoque
-const corEstoque = (qtd, max) => {
-    const porcentagem = qtd / max;
-    if (porcentagem === 0) return '#e74c3c'; // Vermelho (Vazio)
-    if (porcentagem < 0.3) return '#f39c12'; // Laranja (Baixo)
-    return '#2ecc71'; // Verde (Ok)
-};
 // --- SISTEMA DE LEITOS (PROTÓTIPO) ---
 
 // 1. Configuração dos Leitos (Começam vazios)
-const quantidadeLeitos = 3;
+const loadout = jogo.loadoutEnfermaria;
 
-// 2. Cria a lista automaticamente
-const leitos = ref(Array.from({ length: quantidadeLeitos }, (_, index) => ({
-    id: index,
-    ocupado: null
-})));
+// Usa fila e leitos globais
+const leitos = computed(() => jogo.leitos);
+const filaDeEspera = computed(() => jogo.filaDeEspera);
 
-// 2. Fila de Espera (Simulando os 305 feridos + 1 Minerador)
-const filaDeEspera = ref([
-    { id: 'min1', nome: 'Minerador João', doenca: 'fratura_exposta', tipo: 'especial', qtd: 1, tempoTotal: 10, tempoAtual: 0, icone: '/assets/faces/humano/neutro_2_m.png' }, // Usei uma face existente do jogo pro mineiro
-    { id: 't1', nome: 'Batalhão A', doenca: 'corte_leve', tipo: 'tropa', qtd: 100, tempoTotal: 30, tempoAtual: 0, icone: '/assets/ui/icone_tropa.png' },
-    { id: 't2', nome: 'Batalhão B', doenca: 'infeccao_grave', tipo: 'tropa', qtd: 100, tempoTotal: 30, tempoAtual: 0, icone: '/assets/ui/icone_tropa.png' },
-    { id: 't3', nome: 'Batalhão C', doenca: 'trauma_batalha', tipo: 'tropa', qtd: 100, tempoTotal: 3000, tempoAtual: 0, icone: '/assets/ui/icone_tropa.png' },
-    { id: 't4', nome: 'Sobreviventes', doenca: 'trauma_batalha', tipo: 'tropa', qtd: 5, tempoTotal: 5, tempoAtual: 0, icone: '/assets/ui/icone_civil.png' }
-]);
-
-// 3. Função: Mover da Fila para o Leito
+// Função de Alocação MANUAL (Clique do Usuário)
 const alocarPaciente = (paciente, indexLeito) => {
+    // Se o modo automático estiver ligado, avisa pra desligar antes de mexer
+    if (jogo.modoAutomaticoEnfermaria) {
+        return mostrarAviso("Modo Automático", "Desligue a automação para gerenciar manualmente.");
+    }
+
     if (leitos.value[indexLeito].ocupado) return;
 
-    const tipoDoencaID = paciente.doenca || 'corte_leve'; 
+    const tipoDoencaID = paciente.doenca || 'corte_pergaminho'; 
     const dadosDoenca = tiposFerimentos[tipoDoencaID];
-
-    // 1. Verifica qual item está CONFIGURADO para esta categoria
     const categoriaNecessaria = dadosDoenca.reqCategoria;
-    const idItemConfigurado = loadout[categoriaNecessaria]; // Ex: 'bandagem_premium'
     
-    // Busca os dados desse item no catálogo
+    // Pega do global
+    const idItemConfigurado = jogo.loadoutEnfermaria[categoriaNecessaria]; 
     const itemUsado = catalogoMedicamentos.find(i => i.id === idItemConfigurado);
 
     if (!itemUsado) return mostrarAviso('Erro', 'Item configurado não existe.');
 
-    // 2. Verifica se TEM o item no inventário
     const qtdNoInventario = jogo.itens[itemUsado.id] || 0;
 
     if (qtdNoInventario <= 0) {
-        return mostrarAviso(
-            'Sem Estoque!', 
-            `O tratamento exige **${itemUsado.nome}** (Definido no seu kit).\n\nVocê tem 0 unidades.\nFabrique mais ou troque o item equipado no botão de engrenagem.`
-        );
+        return mostrarAviso('Sem Estoque!', `Você precisa de ${itemUsado.nome}.`);
     }
 
-    // 3. Consome e Cura (Igual antes)
+    // Consome
     jogo.itens[itemUsado.id]--;
 
-    const pacienteNoLeito = { ...paciente };
+    // Calcula Tempo (SEM PENALIDADE MANUAL)
     let tempoFinal = dadosDoenca.tempoBase / itemUsado.fatorCura;
     
-    if (enfermeiroAtivo.value) {
-        tempoFinal = tempoFinal / parseFloat(enfermeiroAtivo.value.poder);
+    // Aplica a redução da Medicina (Multiplica pelo fator, ex: * 0.7)
+    if (statsEnfermeiro.value) {
+        tempoFinal = tempoFinal * statsEnfermeiro.value.fatorMultiplicador;
     }
 
+    const pacienteNoLeito = { ...paciente };
     pacienteNoLeito.tempoTotal = tempoFinal;
     pacienteNoLeito.tempoAtual = 0;
     
-    leitos.value[indexLeito].ocupado = pacienteNoLeito;
-    filaDeEspera.value = filaDeEspera.value.filter(p => p.id !== paciente.id);
-    iniciarCura(indexLeito);
+    // Atualiza direto no estado global
+    jogo.leitos[indexLeito].ocupado = pacienteNoLeito;
+    
+    // Remove da fila global (precisa achar o index correto pelo ID)
+    const idx = jogo.filaDeEspera.findIndex(p => p.id === paciente.id);
+    if (idx !== -1) jogo.filaDeEspera.splice(idx, 1);
 };
 
-// 4. Função: Timer de Cura (A barrinha enchendo)
-const iniciarCura = (indexLeito) => {
-    const timer = setInterval(() => {
-        const paciente = leitos.value[indexLeito].ocupado;
-        if (!paciente) { clearInterval(timer); return; }
-
-        // MUDANÇA: Velocidade sempre normal (0.1s a cada 100ms)
-        // O "bônus" já foi aplicado reduzindo o tempoTotal lá em cima
-        paciente.tempoAtual += 0.1; 
-
-        // Se acabou o tempo
-        if (paciente.tempoAtual >= paciente.tempoTotal) {
-            clearInterval(timer);
-            leitos.value[indexLeito].ocupado = null; // Libera o leito
-            // Futuramente: devolver a tropa pro jogo.js
-        }
-    }, 100);
+// Alternar Modo
+const toggleAutomatico = () => {
+    jogo.modoAutomaticoEnfermaria = !jogo.modoAutomaticoEnfermaria;
 };
 
 // Helper para cor da barra
@@ -275,86 +196,107 @@ const corBarra = (p) => {
         </div>
 
         <div v-if="abaAtual === 'tratamento'">
-            <div class="painel-controle-enfermaria">
+            <div class="painel-auto-switch">
+                <div class="info-switch">
+                    <span class="titulo-auto">Modo Automático</span>
+                    <span class="sub-auto" v-if="jogo.modoAutomaticoEnfermaria">Penalidade: +50% tempo de cura</span>
+                    <span class="sub-auto" v-else>Inativo (Ativa após 30min ocioso)</span>
+                </div>
                 
-                <div v-if="enfermeiroAtivo" class="card-funcionario enfermeiro-ativo" :style="{ borderColor: corTier(enfermeiroAtivo.tier) }">
-                    <div class="card-topo" :style="{ backgroundColor: corTier(enfermeiroAtivo.tier) }">
-                        <div class="topo-esquerda">
-                            <span class="tier-badge">{{ enfermeiroAtivo.tier }}</span>
-                            <span class="card-nome">{{ enfermeiroAtivo.nome }}</span>
-                        </div>
-                        
-                        <div class="molde-icone-prof">
-                            <img src="/assets/ui/i_enfermeiro.png" class="img-prof-inner" title="Enfermeiro">
-                        </div>
+                <button 
+                    class="btn-toggle-auto" 
+                    :class="{ 'ligado': jogo.modoAutomaticoEnfermaria }"
+                    @click="toggleAutomatico">
+                    {{ jogo.modoAutomaticoEnfermaria ? 'ON' : 'OFF' }}
+                </button>
+            </div>
+            <div class="painel-controle-global">
+<!-- INICIO DO CARD FUNCIONARIO CONTRATADO-->
+            <div v-if="enfermeiroAtivo" class="card-funcionario funcionario-ativo" :style="{ borderColor: corTier(enfermeiroAtivo.tier) }">
+                
+                <div class="card-topo" :style="{ backgroundColor: corTier(enfermeiroAtivo.tier) }">
+                    <div class="topo-esquerda">
+                        <span class="tier-badge">{{ enfermeiroAtivo.tier }}</span>
+                        <span class="card-nome">{{ enfermeiroAtivo.nome }}</span>
                     </div>
-
-                    <div class="card-mid">
-                        <div class="avatar-box">
-                             <img :src="`/assets/faces/${enfermeiroAtivo.raca}/${enfermeiroAtivo.imagem}.png`" class="avatar-func">
-                        </div>
-
-                        <div class="tabela-dados-func">
-                            <div class="linha-dado">
-                                <span class="dado-label">Profissão:</span>
-                                <span class="dado-valor capitalize">{{ enfermeiroAtivo.nomeProfissao }}</span>
-                            </div>
-                            <div class="linha-dado">
-                                <span class="dado-label">Raça:</span>
-                                <span class="dado-valor capitalize">{{ enfermeiroAtivo.raca }}</span>
-                            </div>
-                            <div class="linha-dado">
-                                <span class="dado-label">Sexo:</span>
-                                <span class="dado-valor">{{ enfermeiroAtivo.sexo === 'masculino' ? 'Masculino' : 'Feminino' }}</span>
-                            </div>
-                            <div class="linha-dado">
-                                <span class="dado-label">Salário:</span>
-                                <span class="dado-valor">
-                                    {{ formatarNumero(enfermeiroAtivo.salario) }} 
-                                    <img src="/assets/ui/icone_goldC.png" class="tiny-coin">
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="rodape-card">
-                        <div class="info-produtividade">
-                            Poder de Cura: <span class="verde">{{ enfermeiroAtivo.poder }}x</span>
-                        </div>
+                    
+                    <div class="molde-icone-prof">
+                        <img src="/assets/ui/i_enfermeiro.png" class="img-prof-inner" title="Enfermeiro">
                     </div>
                 </div>
-                <div v-else class="card-funcionario enfermeiro-ativo" style="border-color: #95a5a6; opacity: 0.9;">
-                    <div class="card-topo" style="background-color: #95a5a6;">
-                        <div class="topo-esquerda">
-                            <span class="tier-badge" style="background: rgba(0,0,0,0.2)">-</span>
-                            <span class="card-nome">Ajudante da Vila</span>
-                        </div>
-                        
-                        <div class="molde-icone-prof">
-                            <img src="/assets/ui/i_enfermeiro.png" class="img-prof-inner" title="Enfermeiro Interino" style="filter: grayscale(1);">
-                        </div>
+
+                <div class="card-mid">
+                    <div class="avatar-box">
+                         <img :src="`/assets/faces/${enfermeiroAtivo.raca}/${enfermeiroAtivo.imagem}.png`" class="avatar-func">
                     </div>
 
-                    <div class="card-mid">
-                        <div class="avatar-box">
-                            <img src="/assets/faces/humano/enfermeiro_m.png" class="avatar-func" style="filter: sepia(0.4);">
+                    <div class="tabela-dados-func">
+                        <div class="linha-dado">
+                            <span class="dado-label">Profissão:</span>
+                            <span class="dado-valor">{{ nomeProfissao(enfermeiroAtivo) }}</span>
                         </div>
-
-                        <div class="tabela-dados-func" style="justify-content: flex-start; align-self: flex-start; margin-top: 5px;">
-                            <div class="linha-dado">
-                                <span class="dado-label">Profissão:</span>
-                                <span class="dado-valor">Ajudante</span>
-                            </div>
+                        <div class="linha-dado">
+                            <span class="dado-label">Raça:</span>
+                            <span class="dado-valor capitalize">{{ enfermeiroAtivo.raca }}</span>
                         </div>
-                    </div>
-
-                    <div class="rodape-card">
-                        <div class="frase-efeito">
-                            "Segurando as pontas até o mestre chegar..."
+                        <div class="linha-dado">
+                            <span class="dado-label">Sexo:</span>
+                            <span class="dado-valor">{{ enfermeiroAtivo.sexo === 'masculino' ? 'Masculino' : 'Feminino' }}</span>
+                        </div>
+                        <div class="linha-dado">
+                            <span class="dado-label">Salário:</span>
+                            <span class="dado-valor">
+                                {{ formatarNumero(enfermeiroAtivo.salario) }} 
+                                <img src="/assets/ui/icone_goldC.png" class="tiny-coin">
+                            </span>
                         </div>
                     </div>
                 </div>
 
+                <div class="rodape-card">
+                    <div class="info-produtividade">
+                        Redução de Tempo: <span class="verde">{{ statsEnfermeiro.textoDisplay }}</span>
+                    </div>
+                    <div class="frase-efeito">
+                        "{{ enfermeiroAtivo.frase || 'Curarei os Feridos!' }}"
+                    </div>
+                </div>
+            </div>
+<!-- FIM DO CARD FUNCIONARIO CONTRATADO-->
+<!-- INICIO DO CARD FUNCIONARIO AJUDANTE-->
+            <div v-else class="card-funcionario funcionario-ativo" style="border-color: #95a5a6; opacity: 0.9;">
+                
+                <div class="card-topo" style="background-color: #95a5a6;">
+                    <div class="topo-esquerda">
+                        <span class="tier-badge" style="background: rgba(0,0,0,0.2)">-</span>
+                        <span class="card-nome">Aprendiz da Vila</span>
+                    </div>
+                    
+                    <div class="molde-icone-prof">
+                        <img src="/assets/ui/i_enfermeiro.png" class="img-prof-inner" title="Enfermeiro Interino" style="filter: grayscale(1);">
+                    </div>
+                </div>
+
+                <div class="card-mid">
+                    <div class="avatar-box">
+                         <img src="/assets/faces/humano/enfermeiro_m.png" class="avatar-func" style="filter: sepia(0.4);">
+                    </div>
+
+                    <div class="tabela-dados-func" style="justify-content: flex-start; align-self: flex-start; margin-top: 5px;">
+                        <div class="linha-dado">
+                            <span class="dado-label">Profissão:</span>
+                            <span class="dado-valor">Ajudante</span>
+                        </div>
+                        </div>
+                </div>
+
+                <div class="rodape-card">
+                    <div class="frase-efeito">
+                        "Segurando as pontas até o mestre chegar..."
+                    </div>
+                </div>
+            </div>
+<!-- FIM DO CARD FUNCIONARIO AJUDANTE-->
                 <div class="linha-divisoria"></div>
 
                 <div class="lado-direito-filtros">
@@ -371,7 +313,7 @@ const corBarra = (p) => {
                                 <button class="btn-icone-mini" @click="verInfoCategoria(slot)" :title="slot.itemAtual.nome">
                                     <div class="emoji-mini">{{ slot.itemAtual.icon }}</div>
                                     
-                                    <div class="badge-qtd-mini" :class="{'zerado': (jogo.itens[slot.itemAtual.id] || 0) === 0}">
+                                    <div class="barra-qtd" :class="{'zerado': (jogo.itens[slot.itemAtual.id] || 0) === 0}">
                                         {{ jogo.itens[slot.itemAtual.id] || 0 }}
                                     </div>
                                 </button>
@@ -411,7 +353,7 @@ const corBarra = (p) => {
 
             </div>
             <div class="area-leitos">
-            <h3>🏥 Leitos de Recuperação ({{ leitos.filter(l => l.ocupado).length }} / 3)</h3>
+            <h3>🏥 Leitos de Recuperação ({{ leitos.filter(l => l.ocupado).length }} / {{ leitos.length }})</h3>
             
             <div class="grid-leitos">
                 <div v-for="(leito, index) in leitos" :key="index" class="box-leito">
@@ -491,136 +433,6 @@ const corBarra = (p) => {
 @import '../css/importantes.css';
 * { box-sizing: border-box; }
 
-/* --- PAINEL DE CONTROLE --- */
-.painel-controle-enfermaria {
-    display: flex; 
-    align-items: flex-start; /* <--- MUDANÇA AQUI: Fixa tudo no topo */
-    justify-content: flex-start; 
-    background: #ecf0f1; 
-    border: 1px solid #bdc3c7; 
-    border-radius: 8px;
-    padding: 10px 15px; 
-    gap: 0; 
-    height: auto; 
-    min-height: 180px; 
-    max-height: 187px;
-}
-
-/* --- CARD GENÉRICO (Estrutura) --- */
-.enfermeiro-ativo {
-    width: 100%;
-    max-width: 235px; 
-    margin: 0;  
-    background: #ffffff;
-    border-width: 2px; 
-    border-style: solid;
-    border-radius: 8px; 
-    overflow: hidden;
-    display: flex; 
-    flex-direction: column;
-    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
-    flex-shrink: 0; 
-    margin-right: 0;
-}
-
-/* Miolo do Card */
-.enfermeiro-ativo .card-mid { 
-    flex: 1; 
-    display: flex; 
-    align-items: center; 
-    padding: 5px 5px 5px 15px; 
-    background: #fff; 
-}
-
-/* --- HEADER DO CARD --- */
-.card-topo {
-    position: relative;
-    display: flex;
-    align-items: center;
-    padding: 1px 5px;
-    padding-right: 35px;
-    color: #fff; 
-    font-weight: bold;
-    height: 32px;
-}
-
-.molde-icone-prof {
-    position: absolute;
-    top: 2px;
-    right: 6px;
-    background-color: #ffffff;
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-    border: 2px solid rgba(255, 255, 255, 0.5);
-    z-index: 10;
-}
-
-.img-prof-inner { width: 17px; height: 17px; object-fit: contain; }
-.topo-esquerda { display: flex; align-items: center; gap: 6px; }
-.tier-badge { background: rgba(0,0,0,0.3); padding: 1px 5px; border-radius: 4px; font-size: 0.9em; }
-
-/* --- CONTEÚDO (Avatar e Tabela) --- */
-.avatar-box {
-    width: 80px;
-    display: flex; align-items: center; justify-content: center;
-    background: #f1f2f6; border-right: 1px solid #dfe4ea;
-}
-.avatar-func { 
-    width: 90px;
-    height: 90px;
-    border-radius: 4px; border: 1px solid #ced6e0; background: #fff; 
-}
-
-.tabela-dados-func { flex: 1; display: flex; flex-direction: column; font-size: 0.75em; }
-
-.linha-dado {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 3px 6px; border-bottom: 1px solid #f1f2f6; color: #2f3542;
-}
-.linha-dado:nth-child(even) { background-color: #f8f9fa; }
-
-.dado-label { color: #747d8c; font-weight: 600; }
-.dado-valor { font-weight: bold; color: #2f3542; display: flex; align-items: center; gap: 3px; white-space: nowrap; }
-.capitalize { text-transform: capitalize; }
-.tiny-coin { width: 11px; height: 11px; }
-
-/* --- RODAPÉ --- */
-.rodape-card {
-    background: #fff;
-    border-top: 1px solid #f1f2f6;
-    padding: 6px 4px;
-    text-align: center;
-    display: flex; flex-direction: column; gap: 2px;
-}
-.info-produtividade { font-size: 0.75em; color: #2c3e50; font-weight: 600; }
-.verde { color: #27ae60; }
-.frase-efeito { font-size: 0.7em; font-style: italic; color: #a4b0be; }
-
-/* --- OUTROS --- */
-.linha-divisoria { 
-    display: block !important;
-    width: 2px; /* Deixando ela levemente mais fina e elegante */
-    height: 160px; 
-    background: #bdc3c7; 
-    opacity: 0.5;
-    flex-shrink: 0;
-    margin-left: 15px;
-    margin-right: 0 20px; /* Mantém o catálogo afastado para não embolar */
-}
-
-/* --- LADO DIREITO (CATÁLOGO) --- */
-.lado-direito-filtros {
-    flex: 1; /* Ocupa o restante do painel */
-    display: flex;
-    flex-direction: column;
-    padding-left: 0;
-    border-left: none !important; /* Remove a borda para usar apenas a .linha-divisoria */
-}
 /* Estilos da Tabela de Cura */
 .titulo-info-cura {
     width: 100%;
@@ -964,10 +776,11 @@ const corBarra = (p) => {
     /* Bordas arredondadas apenas na esquerda */
     border: 1px solid #bdc3c7;
     border-radius: 6px 0 0 6px;
-    border-right: none; /* Remove a borda entre eles */
+    border-right: none; 
     display: flex; align-items: center; justify-content: center;
     cursor: pointer;
-    z-index: 1; /* Fica acima da engrenagem no hover */
+    z-index: 1;
+    overflow: hidden; /* <--- IMPORTANTE: Para cortar a barra nas bordas arredondadas */
 }
 .btn-icone-mini:hover { background: #fdfdfd; }
 .btn-icone-mini:active { transform: scale(0.95); }
@@ -994,21 +807,48 @@ const corBarra = (p) => {
     width: 22px; /* Efeito visual: cresce um pouquinho no hover */
 }
 
-/* Bolinha de Quantidade (Ajustada) */
-.badge-qtd-mini {
+/* Nova Barra de Quantidade Inferior */
+.barra-qtd {
     position: absolute;
-    top: -5px; 
-    left: -5px; /* Mudei para a esquerda para não tapar a engrenagem */
-    background: #2c3e50; color: #fff;
-    font-size: 0.6em; font-weight: bold;
-    min-width: 16px; height: 16px;
-    border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
-    border: 2px solid #fff;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    
+    /* Fundo escuro semi-transparente */
+    background: rgba(0, 0, 0, 0.65); 
+    color: #fff;
+    
+    font-size: 0.6em;
+    font-weight: bold;
+    text-align: center;
+    line-height: 1;
+    padding: 3px 0; /* Altura suficiente apenas para o número */
     z-index: 5;
 }
-.badge-qtd-mini.zerado { background: #e74c3c; }
+
+/* Se estiver zerado, fundo vermelho semi-transparente para alertar */
+.barra-qtd.zerado { 
+    background: rgba(231, 76, 60, 0.85); 
+}
+.painel-auto-switch {
+    display: flex; justify-content: space-between; align-items: center;
+    background: #2c3e50; color: #ecf0f1;
+    padding: 10px 15px; border-radius: 8px;
+    margin-bottom: 10px; border: 2px solid #34495e;
+}
+.info-switch { display: flex; flex-direction: column; }
+.titulo-auto { font-weight: bold; font-size: 1em; color: #64ffda; } /* Verde neon */
+.sub-auto { font-size: 0.75em; color: #bdc3c7; }
+
+.btn-toggle-auto {
+    width: 60px; height: 30px;
+    border-radius: 20px; border: none; font-weight: bold;
+    background: #e74c3c; color: #fff; cursor: pointer;
+    transition: all 0.3s; box-shadow: inset 0 2px 5px rgba(0,0,0,0.2);
+}
+.btn-toggle-auto.ligado {
+    background: #2ecc71; box-shadow: 0 0 10px #2ecc71;
+}
 
 /* Ajuste Mobile para ficar 1 coluna se for muito pequeno */
 @media(max-width: 400px) {
@@ -1023,16 +863,5 @@ const corBarra = (p) => {
 @keyframes flutuar {
     0%, 100% { transform: translateY(0); }
     50% { transform: translateY(-6px); }
-}
-@media(max-width: 768px) {
-    .painel-controle-enfermaria { flex-direction: column; height: auto; gap: 20px; }
-    .linha-divisoria {
-        display: none !important;
-    }
-    /* ESCONDE A LINHA NO CELULAR */
-    .linha-divisoria { display: none; }
-
-    /* Ajuste para o painel da direita ocupar 100% no celular */
-    .lado-direito-filtros { width: 100%; }
 }
 </style>

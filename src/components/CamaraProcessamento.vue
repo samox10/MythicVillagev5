@@ -1,8 +1,9 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { jogo, DADOS_PROCESSAMENTO, mostrarAviso, obterBuffRaca } from '../jogo.js';
+import { jogo, mostrarAviso, obterBuffRaca, salvarNaNuvem } from '../jogo.js';
 import { tabelaCarcacas } from '../dados.js';
-import { corTier } from '../funcionarios.js';
+import { corTier, nomeProfissao } from '../funcionarios.js';
+import { formatarNumero } from '../utilidades.js';
 
 const abaAtual = ref('destrinchar');
 const mostrarBotaoTopo = ref(false);
@@ -18,57 +19,32 @@ const voltarAoTopo = () => {
 const isMobile = ref(window.innerWidth < 768); // Verifica se é mobile inicialmente
 // --- 1. LÓGICA DO FUNCIONÁRIO ---
 const esfoladorAtivo = computed(() => {
-    // Procura o primeiro esfolador que NÃO esteja em greve
-    const profissional = jogo.funcionarios.find(f => f.profissao === 'esfolador' && f.diasEmGreve === 0);
-    
-    if (profissional) {
-        // Calcula o buff racial
-        const buffPct = obterBuffRaca(profissional);
-        const poderFinal = (profissional.bonus * (1 + (buffPct / 100)));
-
-        return {
-            tipo: 'profissional',
-            nome: profissional.nome,
-            raca: profissional.raca,
-            sexo: profissional.sexo,
-            imagem: profissional.imagem,
-            tier: profissional.tier,
-            poder: poderFinal.toFixed(2),
-            salario: profissional.salario,
-            frase: profissional.frase
-        };
-    } 
-    // CORREÇÃO: Retorna null se não tiver profissional, para ativar o v-else do Ajudante corretamente
-    return null;
-});
-// --- LÓGICA DE ORDENAÇÃO DO ESTOQUE ---
-const carcacasOrdenadas = computed(() => {
-    // Cria uma cópia da lista original para organizar
-    return [...tabelaCarcacas].sort((a, b) => {
-        // Pega a quantidade que você tem de cada um
-        const qtdA = jogo.itens[a.id] || 0;
-        const qtdB = jogo.itens[b.id] || 0;
-        
-        const temA = qtdA > 0;
-        const temB = qtdB > 0;
-
-        // 1. Critério: Quem tem estoque (>0) vem primeiro
-        // Se A tem e B não tem, A sobe (-1)
-        if (temA && !temB) return -1;
-        // Se B tem e A não tem, B sobe (1)
-        if (!temA && temB) return 1;
-
-        // 2. Critério: Desempate por Ordem Alfabética
-        return a.nome.localeCompare(b.nome);
-    });
+    return jogo.funcionarios.find(f => f.profissao === 'esfolador' && f.diasEmGreve === 0);
 });
 
 const statsEsfolador = computed(() => {
-    // Proteção: Se não tiver esfolador, retorna valor padrão
-    if (!esfoladorAtivo.value) return { tempo: '1.00' };
+    // Se não tiver ninguém, retorna o padrão
+    if (!esfoladorAtivo.value) {
+        return { 
+            poderReal: 1, 
+            poderFormatado: '1.00', 
+            bonusTempo: 0 
+        };
+    }
     
+    const prof = esfoladorAtivo.value;
+    
+    // Calcula Buff Racial
+    const buffPct = obterBuffRaca(prof);
+    
+    // Calcula Poder Final (Base * Buff)
+    const poderCalc = (prof.bonus * (1 + (buffPct / 100)));
+
     return {
-        tempo: esfoladorAtivo.value.poder
+        poderReal: poderCalc,
+        poderFormatado: poderCalc.toFixed(2),
+        // Exemplo: Se quiser mostrar quantos % ele está acelerando
+        bonusTempo: Math.floor((poderCalc - 1) * 100) 
     };
 });
 // Função auxiliar para pegar a imagem da carcaça pelo ID
@@ -140,41 +116,67 @@ const getPaddingMesa = (id) => {
 };
 
 // Função para adicionar carcaça na fila (clique no botão)
+// Função BLINDADA para adicionar carcaça na fila
 const adicionarFila = (carcaca) => {
-    // 1. Verifica se tem no inventário
+    if (jogo.processamento.length < 8) {
+        while (jogo.processamento.length < 8) {
+             jogo.processamento.push({ item: null, tempoTotal: 0, tempoRestante: 0, progresso: 0 });
+        }
+    }
+    // 1. Verifica Nível da Câmara
+    if (carcaca.nivelRequerido > jogo.camaraProcessamento) {
+        return mostrarAviso(
+            "Câmara Insuficiente", 
+            `Nível necessário: ${carcaca.nivelRequerido} (Você tem: ${jogo.camaraProcessamento})`
+        );
+    }
+    
+    // 2. Verifica Estoque
     const qtdTenho = jogo.itens[carcaca.id] || 0;
-    if (qtdTenho <= 0) return mostrarAviso("Estoque Vazio", `Você não tem ${carcaca.nome} para processar.`);
+    if (qtdTenho <= 0) return mostrarAviso("Estoque Vazio", `Você não tem ${carcaca.nome}.`);
 
-    // 2. Procura um slot vazio na fila (do índice 1 ao 10)
-    // O índice 0 é a Mesa. Do 1 ao 10 é a fila de espera.
+    // 3. Procura slot vazio (IGNORANDO FANTASMAS)
     let slotVazio = -1;
+    
+    // Começa do 1 (porque 0 é a mesa)
     for (let i = 1; i < jogo.processamento.length; i++) {
-        if (!jogo.processamento[i].item) {
+        const slot = jogo.processamento[i];
+        
+        // Verifica se o slot está REALMENTE ocupado
+        // Critério: Tem ID E esse ID existe na tabela de carcaças oficial
+        const slotOcupado = slot.item && tabelaCarcacas.some(c => c.id === slot.item);
+
+        if (!slotOcupado) {
             slotVazio = i;
+            // Se tinha algum lixo ali (fantasma), a gente limpa agora
+            if (slot.item) console.log(`[FIX] Sobrescrevendo fantasma no slot ${i}:`, slot.item);
             break;
         }
     }
 
-    if (slotVazio === -1) return mostrarAviso("Fila Cheia", "A fila de processamento está cheia (Máx 10).");
+    if (slotVazio === -1) return mostrarAviso("Fila Cheia", "A fila de processamento está cheia (10/10).");
 
-    // 3. Adiciona na fila e remove do inventário
+    // 4. Adiciona na fila e salva
     jogo.itens[carcaca.id]--; 
     
-    // Configura o slot com os dados da carcaça
-    jogo.processamento[slotVazio].item = carcaca.id;
-    // Pega o poder do esfolador ativo (se existir) ou usa 1 (padrão)
-    // Convertemos para Number pois o .poder vem como texto formatado
+    // Limpa o slot completamente antes de usar
+    jogo.processamento[slotVazio] = {
+        item: carcaca.id,
+        progresso: 0,
+        tempoTotal: 0, // Será calculado no loop do jogo ou abaixo
+        tempoRestante: 0
+    };
+
+    // Recalcula o tempo com o funcionário atual
     let velocidade = esfoladorAtivo.value ? Number(esfoladorAtivo.value.poder) : 1.0;
-    if (isNaN(velocidade) || velocidade < 1) velocidade = 1.0;
+    // Proteção contra valor zero/bugado
+    if (!velocidade || velocidade <= 0) velocidade = 1.0; 
 
-    // Calcula o novo tempo total dividindo pela velocidade
-    const tempoReduzido = carcaca.tempo / velocidade;
-
-    jogo.processamento[slotVazio].tempoTotal = tempoReduzido;
-    jogo.processamento[slotVazio].tempoRestante = tempoReduzido;
-    // ------------------------------------------
-
-    jogo.processamento[slotVazio].progresso = 0;
+    const tempoReal = carcaca.tempo / velocidade;
+    
+    jogo.processamento[slotVazio].tempoTotal = tempoReal;
+    jogo.processamento[slotVazio].tempoRestante = tempoReal;
+    salvarNaNuvem();
 };
 
 // Função para cancelar e fazer a fila andar
@@ -193,6 +195,7 @@ const cancelarFila = (index) => {
     // 3. Adiciona um slot vazio novinho no final da lista
     // Isso garante que a fila sempre tenha 11 posições (1 mesa + 10 fila)
     jogo.processamento.push({ item: null, tempoTotal: 0, tempoRestante: 0, progresso: 0 });
+    salvarNaNuvem();
 };
 // Função para abrir detalhes da carcaça
 const verDetalhesCarcaca = (carcaca) => {
@@ -205,23 +208,15 @@ const verDetalhesCarcaca = (carcaca) => {
         🛡️ <b>Gera:</b> ${carcaca.recursos.couro} Couro
         <br><br>
         <i>"${carcaca.desc}"</i>
-    `;
-    
+    `;    
     // Usa o sistema de modal global do jogo
     mostrarAviso(carcaca.nome, texto, 'info'); 
     // Nota: 'info' é um tipo genérico, se quiser ícone específico teríamos que mexer no Modal.vue, mas por enquanto isso funciona.
 };
-
-// --- 2. HELPERS VISUAIS ---
-const formatarNumero = (num) => {
-    return num ? num.toLocaleString('pt-BR') : '0';
-};
 // --- LÓGICA DE PAGINAÇÃO DO CATÁLOGO ---
-// --- LÓGICA DE PAGINAÇÃO RESPONSIVA ---
 const paginaAtual = ref(1);
 // Começa com 12, mas vamos ajustar logo em seguida
 const itensPorPagina = ref(12); 
-
 // Função que decide quantos itens mostrar
 const atualizarItensPorPagina = () => {
     // 2. Atualiza a variável sempre que a tela mudar
@@ -233,31 +228,35 @@ const atualizarItensPorPagina = () => {
         itensPorPagina.value = 16;
     }
 };
-
 // --- (Importante) Adicionar Listeners de Tela ---
 // Precisamos atualizar isso quando o site carregar E quando redimensionar a tela
 onMounted(() => {
+    // --- [NOVO] FAXINA AUTOMÁTICA DE ITENS FANTASMAS ---
+    if (jogo.processamento) {
+        jogo.processamento.forEach(slot => {
+            // Se tem um item no slot, MAS esse item não existe na lista oficial...
+            if (slot.item && !tabelaCarcacas.some(c => c.id === slot.item)) {
+                console.log("👻 Fantasma removido da fila:", slot.item);
+                slot.item = null;
+                slot.progresso = 0;
+                slot.tempoTotal = 0;
+                slot.tempoRestante = 0;
+            }
+        });
+    }
+    // ----------------------------------------------------
     atualizarItensPorPagina(); // Executa ao abrir
     window.addEventListener('resize', atualizarItensPorPagina); // Executa ao mudar tamanho
     
     // (Mantém seu listener de scroll antigo aqui também se quiser, ou deixe separado)
     window.addEventListener('scroll', verificarScroll);
 });
-
 onUnmounted(() => {
     window.removeEventListener('resize', atualizarItensPorPagina);
     window.removeEventListener('scroll', verificarScroll);
 });
-
 // Calcula quantas páginas existem (Agora usa itensPorPagina.value)
 const totalPaginas = computed(() => Math.ceil(tabelaCarcacas.length / itensPorPagina.value));
-
-// Corta a lista para mostrar apenas os da página atual
-const carcacasVisiveis = computed(() => {
-    const inicio = (paginaAtual.value - 1) * itensPorPagina.value;
-    return tabelaCarcacas.slice(inicio, inicio + itensPorPagina.value);
-});
-
 // Funções de Navegação
 const proximaPagina = () => {
     if (paginaAtual.value < totalPaginas.value) paginaAtual.value++;
@@ -265,11 +264,56 @@ const proximaPagina = () => {
 const paginaAnterior = () => {
     if (paginaAtual.value > 1) paginaAtual.value--;
 };
+// Corta a lista para mostrar apenas os da página atual
+const carcacasVisiveis = computed(() => {
+    const inicio = (paginaAtual.value - 1) * itensPorPagina.value;
+    return tabelaCarcacas.slice(inicio, inicio + itensPorPagina.value);
+});
+// Ordenaçao das carcaças
+const carcacasOrdenadas = computed(() => {
+    const nivelAtual = jogo.camaraProcessamento;
+    // --- PASSO 1: Descobrir qual é o "Próximo Nível" existente ---
+    // Cria uma lista apenas com os níveis que são maiores que o meu
+    const niveisFuturos = tabelaCarcacas
+        .map(c => c.nivelRequerido)
+        .filter(n => n > nivelAtual);
+    // Pega o menor valor dessa lista (o nível mais próximo). 
+    // Se a lista estiver vazia (já desbloqueou tudo), definimos como null.
+    const proximoNivelVisivel = niveisFuturos.length > 0 ? Math.min(...niveisFuturos) : null;
+    // --- PASSO 2: Filtrar a tabela ---
+    const listaFiltrada = tabelaCarcacas.filter(c => {
+        // Regra 1: Mostra tudo que já está desbloqueado (Menor ou igual ao meu nível)
+        if (c.nivelRequerido <= nivelAtual) return true;
+        // Regra 2: Mostra SOMENTE o que for do próximo nível imediato (O "Spoiler")
+        if (proximoNivelVisivel !== null && c.nivelRequerido === proximoNivelVisivel) return true;
+        // Regra 3: Se o jogador TIVER o item no inventário (via bug ou evento), 
+        // geralmente é boa prática mostrar para o item não "sumir", 
+        // mas como você pediu para limpar, pode remover esta linha abaixo se quiser rigidez total.
+        if ((jogo.itens[c.id] || 0) > 0) return true; 
+        // O resto (Níveis muito altos) é escondido
+        return false;
+    });
+    // --- PASSO 3: Ordenar (Sua lógica de estoque e prioridade) ---
+    return listaFiltrada.sort((a, b) => {
+        const qtdA = jogo.itens[a.id] || 0;
+        const qtdB = jogo.itens[b.id] || 0;
+        const temA = qtdA > 0;
+        const temB = qtdB > 0;
+        // Prioridade 1: Quem tem estoque aparece primeiro
+        if (temA && !temB) return -1;
+        if (!temA && temB) return 1;
+        // Prioridade 2: Entre os que tem estoque (ou os dois sem), quem já está desbloqueado vem antes
+        const desbloqA = a.nivelRequerido <= nivelAtual;
+        const desbloqB = b.nivelRequerido <= nivelAtual;        
+        if (desbloqA && !desbloqB) return -1;
+        if (!desbloqA && desbloqB) return 1;
+        // Prioridade 3: Ordem Alfabética
+        return a.nome.localeCompare(b.nome);
+    });
+});
 </script>
-
 <template>
-    <div class="mythic-container">
-        
+    <div class="mythic-container">        
         <div class="header-titulo-aba">
             <div class="titulo-nivel">
                 <h2>🔪 Câmara de Processamento</h2>
@@ -280,8 +324,7 @@ const paginaAnterior = () => {
         </div>        
         <!-- ABAS DE PROCESSAMENTO ( DESTRINCHAR / PROCESSAR ) 
         <div class="abas-taverna">
-            <button :class="{ ativo: abaAtual === 'destrinchar' }" @click="abaAtual = 'destrinchar'">DESTRINCHAR</button>
-            
+            <button :class="{ ativo: abaAtual === 'destrinchar' }" @click="abaAtual = 'destrinchar'">DESTRINCHAR</button>            
             <button 
                 :class="{ 'ativo': abaAtual === 'processamento', 'bloqueado': !esfoladorAtivo }" 
                 @click="abaAtual = 'processamento'"
@@ -292,96 +335,87 @@ const paginaAnterior = () => {
         </div>
         -->
         <div v-if="abaAtual === 'destrinchar'">
-            <div class="painel-controle-camaraProcessamento">
-                
-                <div v-if="esfoladorAtivo" class="card-funcionario esfolador-ativo" :style="{ borderColor: corTier(esfoladorAtivo.tier) }">
-                    <div class="card-topo" :style="{ backgroundColor: corTier(esfoladorAtivo.tier) }">
-                        <div class="topo-esquerda">
-                            <span class="tier-badge">{{ esfoladorAtivo.tier }}</span>
-                            <span class="card-nome">{{ esfoladorAtivo.nome }}</span>
-                        </div>
-                        
-                        <div class="molde-icone-prof">
-                            <img src="/assets/ui/i_cacador.png" class="img-prof-inner" title="Esfolador">
-                        </div>
+            <div class="painel-controle-global">                
+<!-- INICIO DO CARD FUNCIONARIO CONTRATADO-->
+            <div v-if="esfoladorAtivo" class="card-funcionario funcionario-ativo" :style="{ borderColor: corTier(esfoladorAtivo.tier) }">                
+                <div class="card-topo" :style="{ backgroundColor: corTier(esfoladorAtivo.tier) }">
+                    <div class="topo-esquerda">
+                        <span class="tier-badge">{{ esfoladorAtivo.tier }}</span>
+                        <span class="card-nome">{{ esfoladorAtivo.nome }}</span>
+                    </div>                    
+                    <div class="molde-icone-prof">
+                        <img src="/assets/ui/i_esfolador.png" class="img-prof-inner" title="Esfolador">
                     </div>
-
-                    <div class="card-mid">
-                        <div class="avatar-box">
-                             <img :src="`/assets/faces/${esfoladorAtivo.raca}/${esfoladorAtivo.imagem}.png`" class="avatar-func">
-                        </div>
-
-                        <div class="tabela-dados-func">
-                            <div class="linha-dado">
-                                <span class="dado-label">Profissão:</span>
-                                <span class="dado-valor">Esfolador</span>
-                            </div>
-                            <div class="linha-dado">
-                                <span class="dado-label">Raça:</span>
-                                <span class="dado-valor capitalize">{{ esfoladorAtivo.raca }}</span>
-                            </div>
-                            <div class="linha-dado">
-                                <span class="dado-label">Sexo:</span>
-                                <span class="dado-valor">{{ esfoladorAtivo.sexo === 'masculino' ? 'Masculino' : 'Feminino' }}</span>
-                            </div>
-                            <div class="linha-dado">
-                                <span class="dado-label">Salário:</span>
-                                <span class="dado-valor">
-                                    {{ formatarNumero(esfoladorAtivo.salario) }} 
-                                    <img src="/assets/ui/icone_goldC.png" class="tiny-coin">
-                                </span>
-                            </div>
-                        </div>
+                </div>
+                <div class="card-mid">
+                    <div class="avatar-box">
+                         <img :src="`/assets/faces/${esfoladorAtivo.raca}/${esfoladorAtivo.imagem}.png`" class="avatar-func">
                     </div>
-
-                    <div class="rodape-card">
-                        <div class="info-produtividade">
-                            Velocidade de Corte: <span class="verde">{{ statsEsfolador.tempo }}x</span>
+                    <div class="tabela-dados-func">
+                        <div class="linha-dado">
+                            <span class="dado-label">Profissão:</span>
+                            <span class="dado-valor">{{ nomeProfissao(esfoladorAtivo) }}</span>
                         </div>
-                        <div class="frase-efeito">
-                            "{{ esfoladorAtivo.frase || 'A carne garante o jantar!' }}"
+                        <div class="linha-dado">
+                            <span class="dado-label">Raça:</span>
+                            <span class="dado-valor capitalize">{{ esfoladorAtivo.raca }}</span>
+                        </div>
+                        <div class="linha-dado">
+                            <span class="dado-label">Sexo:</span>
+                            <span class="dado-valor">{{ esfoladorAtivo.sexo === 'masculino' ? 'Masculino' : 'Feminino' }}</span>
+                        </div>
+                        <div class="linha-dado">
+                            <span class="dado-label">Salário:</span>
+                            <span class="dado-valor">
+                                {{ formatarNumero(esfoladorAtivo.salario) }} 
+                                <img src="/assets/ui/icone_goldC.png" class="tiny-coin">
+                            </span>
                         </div>
                     </div>
                 </div>
-
-                <div v-else class="card-funcionario esfolador-ativo" style="border-color: #95a5a6; opacity: 0.9;">
-                    <div class="card-topo" style="background-color: #95a5a6;">
-                        <div class="topo-esquerda">
-                            <span class="tier-badge" style="background: rgba(0,0,0,0.2)">-</span>
-                            <span class="card-nome">Ajudante da Vila</span>
-                        </div>
-                        
-                        <div class="molde-icone-prof">
-                            <img src="/assets/ui/i_cacador.png" class="img-prof-inner" title="Esfolador Interino" style="filter: grayscale(1);">
-                        </div>
+                <div class="rodape-card">
+                    <div class="info-produtividade">
+                        Maestria da cura +<span class="verde">{{ statsEsfolador.poderFormatado }}%</span>
                     </div>
-
-                    <div class="card-mid">
-                        <div class="avatar-box">
-                            <img src="/assets/faces/humano/ferreiro_m.png" class="avatar-func" style="filter: sepia(0.4);">
-                        </div>
-
-                        <div class="tabela-dados-func" style="justify-content: flex-start; align-self: flex-start; margin-top: 5px;">
-                            <div class="linha-dado">
-                                <span class="dado-label">Profissão:</span>
-                                <span class="dado-valor">Ajudante</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="rodape-card">
-                        <div class="frase-efeito">
-                            "Segurando as pontas até o mestre chegar..."
-                        </div>
+                    <div class="frase-efeito">
+                        "{{ esfoladorAtivo.frase || 'Curarei os Feridos!' }}"
                     </div>
                 </div>
-
+            </div>
+<!-- FIM DO CARD FUNCIONARIO CONTRATADO-->
+<!-- INICIO DO CARD FUNCIONARIO AJUDANTE-->
+            <div v-else class="card-funcionario funcionario-ativo" style="border-color: #95a5a6; opacity: 0.9;">                
+                <div class="card-topo" style="background-color: #95a5a6;">
+                    <div class="topo-esquerda">
+                        <span class="tier-badge" style="background: rgba(0,0,0,0.2)">-</span>
+                        <span class="card-nome">Aprendiz da Vila</span>
+                    </div>                    
+                    <div class="molde-icone-prof">
+                        <img src="/assets/ui/i_esfolador.png" class="img-prof-inner" title="Esfolador Interino" style="filter: grayscale(1);">
+                    </div>
+                </div>
+                <div class="card-mid">
+                    <div class="avatar-box">
+                         <img src="/assets/faces/humano/esfolador_m.png" class="avatar-func" style="filter: sepia(0.4);">
+                    </div>
+                    <div class="tabela-dados-func" style="justify-content: flex-start; align-self: flex-start; margin-top: 5px;">
+                        <div class="linha-dado">
+                            <span class="dado-label">Profissão:</span>
+                            <span class="dado-valor">Ajudante</span>
+                        </div>
+                        </div>
+                </div>
+                <div class="rodape-card">
+                    <div class="frase-efeito">
+                        "Segurando as pontas até o mestre chegar..."
+                    </div>
+                </div>
+            </div>
+<!-- FIM DO CARD FUNCIONARIO AJUDANTE-->
                 <div class="linha-divisoria"></div>
-
                 <div class="lado-direito-filtros">
                     <div class="header-catalogo">
-                        <div class="titulo-info-extra">📘 Catálogo</div>
-                        
+                        <div class="titulo-info-extra">📘 Catálogo</div>                        
                         <div v-if="totalPaginas > 1" class="controles-paginacao">
                             <button 
                                 class="btn-pag" 
@@ -389,10 +423,8 @@ const paginaAnterior = () => {
                                 :disabled="paginaAtual === 1"
                                 title="Página Anterior">
                                 ◄
-                            </button>
-                            
-                            <span class="indicador-pag">{{ paginaAtual }}/{{ totalPaginas }}</span>
-                            
+                            </button>                            
+                            <span class="indicador-pag">{{ paginaAtual }}/{{ totalPaginas }}</span>                            
                             <button 
                                 class="btn-pag" 
                                 @click="proximaPagina" 
@@ -401,36 +433,28 @@ const paginaAnterior = () => {
                                 ►
                             </button>
                         </div>
-                    </div>
-                    
+                    </div>                    
                     <div class="botoes-explicativos-carcacas">
                         <button 
                             v-for="c in carcacasVisiveis" 
-                            :key="c.id" 
-                            
-                            :class="['btn-info-monster', { 'bloqueado': c.nivelRequerido > jogo.camaraProcessamento }]"
-                            
-                            @click="c.nivelRequerido > jogo.camaraProcessamento ? null : verDetalhesCarcaca(c)"
-                            
-                            :title="c.nivelRequerido > jogo.camaraProcessamento ? `Bloqueado: Requer Câmara Nível ${c.nivelRequerido}` : c.nome"
-                            
+                            :key="c.id"                             
+                            :class="['btn-info-monster', { 'bloqueado': c.nivelRequerido > jogo.camaraProcessamento }]"                            
+                            @click="c.nivelRequerido > jogo.camaraProcessamento ? null : verDetalhesCarcaca(c)"                            
+                            :title="c.nivelRequerido > jogo.camaraProcessamento ? `Bloqueado: Requer Câmara Nível ${c.nivelRequerido}` : c.nome"                            
                             :disabled="c.nivelRequerido > jogo.camaraProcessamento"
                         >
-                            <img :src="c.img" class="img-info-monster">
-                            
+                            <img :src="c.img" class="img-info-monster">                            
                             <div v-if="c.nivelRequerido > jogo.camaraProcessamento" class="overlay-lock">
                                 <span class="lock-label">NÍVEL</span>
                                 <span class="lock-value">{{ c.nivelRequerido }}</span>
                             </div>
-                        </button>
-                        
+                        </button>                        
                         <div v-for="n in (itensPorPagina - carcacasVisiveis.length)" :key="'vazio-'+n" class="slot-falso"></div>
                     </div>
                 </div>
             </div>
             <div class="mesa-processamento" 
                  :style="{ paddingBottom: getPaddingMesa(jogo.processamento[0]?.item) + 'px' }">        
-
                 <div v-if="jogo.processamento[0] && jogo.processamento[0].item" class="monstro-na-mesa">
                     <img 
                         :src="getImagemCorpo(jogo.processamento[0].item)" 
@@ -441,25 +465,21 @@ const paginaAnterior = () => {
                         }"
                     >
                 </div>
-
                 <div v-if="jogo.processamento[0] && jogo.processamento[0].item" class="barra-progresso-container">
                     <div class="barra-progresso-fill" :style="{ width: jogo.processamento[0].progresso + '%' }"></div>
                     <span class="texto-progresso">{{ Math.floor(jogo.processamento[0].tempoRestante) }}s</span>
                 </div>
-
                 <div v-else class="aviso-mesa-vazia">
                     <span style="font-size: 4em;">🔪</span>
                     <p>Aguardando carcaça...</p>
                 </div>
             </div>
             <div class="fila-processamento">
-                <div v-for="i in 7" :key="i" class="slot-fila">
-                    
+                <div v-for="i in 7" :key="i" class="slot-fila">                    
                     <div v-if="jogo.processamento[i] && jogo.processamento[i].item" class="item-fila-conteudo">
                         <img :src="getImagemCarcaca(jogo.processamento[i].item)" class="img-slot-fila">
                         <button class="btn-fechar-fila" @click="cancelarFila(i)">x</button>
                     </div>
-
                     <div v-else class="slot-vazio"></div>
                 </div>
             </div>
@@ -470,24 +490,28 @@ const paginaAnterior = () => {
                         v-for="carcaca in carcacasOrdenadas" 
                         :key="carcaca.id"
                         class="card-selecao-carcaca"
+                        :class="{ 'nivel-insuficiente': carcaca.nivelRequerido > jogo.camaraProcessamento }"
                         @click="adicionarFila(carcaca)"
-                        :disabled="(jogo.itens[carcaca.id] || 0) <= 0">
-                        
-                        <img :src="carcaca.img" class="icon-carcaca-btn">
+                        :disabled="(jogo.itens[carcaca.id] || 0) <= 0"
+                    >                        
+                        <div class="wrapper-icone">
+                            <img :src="carcaca.img" class="icon-carcaca-btn">
+                        </div>
                         <div class="info-carcaca-btn">
                             <span class="nome-carcaca">{{ carcaca.nome }}</span>
                             <span class="estoque-carcaca">Em estoque: {{ jogo.itens[carcaca.id] || 0 }}</span>
                         </div>
-                        <span class="btn-add-icone">+</span>
+                        <div v-if="carcaca.nivelRequerido > jogo.camaraProcessamento" class="badge-requisito">
+                            Nvl {{ carcaca.nivelRequerido }}
+                        </div>
+                        <span v-else class="btn-add-icone">+</span>
                     </button>
                 </div>
             </div>
         </div>
-
         <div class="conteudo-pagina">
             <slot></slot>
         </div>
-
         <button v-if="mostrarBotaoTopo" 
                 class="btn-scroll-topo" 
                 @click="voltarAoTopo" 
@@ -496,141 +520,9 @@ const paginaAnterior = () => {
         </button>
     </div>
 </template>
-
 <style scoped>
 @import '../css/importantes.css';
 * { box-sizing: border-box; }
-
-/* --- PAINEL DE CONTROLE --- */
-.painel-controle-camaraProcessamento {
-    display: flex; 
-    align-items: center; 
-    justify-content: flex-start; 
-    background: #ecf0f1; 
-    border: 1px solid #bdc3c7; 
-    border-radius: 8px;
-    padding: 10px 15px; 
-    /* O gap define o espaço base, mas a margem da linha vai personalizar isso */
-    gap: 0; 
-    height: auto; 
-    min-height: 180px; 
-}
-/* --- CARD GENÉRICO (Estrutura) --- */
-.esfolador-ativo {
-    width: 100%;
-    max-width: 230px; 
-    margin: 0;  
-    background: #ffffff;
-    border-width: 2px; 
-    border-style: solid;
-    border-radius: 8px; 
-    overflow: hidden;
-    display: flex; 
-    flex-direction: column;
-    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
-    flex-shrink: 0; 
-    margin-right: 0;
-}
-
-/* Miolo do Card */
-.esfolador-ativo .card-mid { 
-    flex: 1; 
-    display: flex; 
-    align-items: center; 
-    padding: 5px 5px 5px 15px; 
-    background: #fff; 
-}
-
-/* --- HEADER DO CARD --- */
-.card-topo {
-    position: relative;
-    display: flex;
-    align-items: center;
-    padding: 1px 5px;
-    padding-right: 35px;
-    color: #fff; 
-    font-weight: bold;
-    height: 32px;
-}
-
-.molde-icone-prof {
-    position: absolute;
-    top: 2px;
-    right: 6px;
-    background-color: #ffffff;
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-    border: 2px solid rgba(255, 255, 255, 0.5);
-    z-index: 10;
-}
-
-.img-prof-inner { width: 19px; height: 19px; object-fit: contain; }
-.topo-esquerda { display: flex; align-items: center; gap: 6px; }
-.tier-badge { background: rgba(0,0,0,0.3); padding: 1px 5px; border-radius: 4px; font-size: 0.9em; }
-
-/* --- CONTEÚDO (Avatar e Tabela) --- */
-.avatar-box {
-    width: 80px;
-    display: flex; align-items: center; justify-content: center;
-    background: #f1f2f6; border-right: 1px solid #dfe4ea;
-}
-.avatar-func { 
-    width: 90px;
-    height: 90px;
-    border-radius: 4px; border: 1px solid #ced6e0; background: #fff; 
-}
-
-.tabela-dados-func { flex: 1; display: flex; flex-direction: column; font-size: 0.75em; }
-
-.linha-dado {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 3px 6px; border-bottom: 1px solid #f1f2f6; color: #2f3542;
-}
-.linha-dado:nth-child(even) { background-color: #f8f9fa; }
-
-.dado-label { color: #747d8c; font-weight: 600; }
-.dado-valor { font-weight: bold; color: #2f3542; display: flex; align-items: center; gap: 3px; white-space: nowrap; }
-.capitalize { text-transform: capitalize; }
-.tiny-coin { width: 11px; height: 11px; }
-
-/* --- RODAPÉ --- */
-.rodape-card {
-    background: #fff;
-    border-top: 1px solid #f1f2f6;
-    padding: 6px 4px;
-    text-align: center;
-    display: flex; flex-direction: column; gap: 2px;
-}
-.info-produtividade { font-size: 0.75em; color: #2c3e50; font-weight: 600; }
-.verde { color: #27ae60; }
-.frase-efeito { font-size: 0.7em; font-style: italic; color: #a4b0be; }
-
-/* --- OUTROS --- */
-.linha-divisoria { 
-    display: block !important;
-    width: 2px; /* Deixando ela levemente mais fina e elegante */
-    height: 100px; 
-    background: #bdc3c7; 
-    opacity: 0.5;
-    flex-shrink: 0;
-    margin-left: 20px;
-    margin-right: 0 20px; /* Mantém o catálogo afastado para não embolar */
-}
-
-/* --- LADO DIREITO (CATÁLOGO) --- */
-.lado-direito-filtros {
-    flex: 1; /* Ocupa o restante do painel */
-    display: flex;
-    flex-direction: column;
-    padding-left: 0;
-    border-left: none !important; /* Remove a borda para usar apenas a .linha-divisoria */
-}
-
 .abas-taverna button.bloqueado {
     opacity: 0.6;
     cursor: not-allowed;
@@ -644,28 +536,19 @@ const paginaAnterior = () => {
     background: url('/assets/ui/mesa_processamento.png');
     background-size: contain; 
     background-position: center bottom;
-    background-repeat: no-repeat;
-    
+    background-repeat: no-repeat;    
     background-color: transparent; 
     border: none; 
     box-shadow: none;
-
     height: 350px; 
     position: relative;
     display: flex;
     flex-direction: column;
-    align-items: center;
-    
-    justify-content: flex-end; 
-    
-    /* MUDANÇA 1: Aumentei de 110px para 145px. 
-       Isso vai empurrar o monstro bem mais para o "meio" da mesa.
-    padding-bottom: 165px;  */
-    
+    align-items: center;    
+    justify-content: flex-end;      
     margin-bottom: 15px;
     margin-top: 15px;
 }
-
 .monstro-na-mesa {
     display: flex;
     flex-direction: column;
@@ -673,58 +556,43 @@ const paginaAnterior = () => {
     width: 100%;
     animation: slideIn 0.5s ease;
 }
-
 /* Imagem Grande do Monstro */
 .img-monstro-mesa {
     height: auto;
-    object-fit: contain;
-    
+    object-fit: contain;    
     margin: 0; 
-    
-    /* MUDANÇA 2: Adicionei esta linha.
-       rotate(-10deg): Gira levemente para esquerda para acompanhar a mesa.
-       scale(1.1): Aumenta um pouquinho o tamanho para preencher melhor a pedra.
-    transform: rotate(-20deg) scale(1.1); */
-
     filter: drop-shadow(0 5px 5px rgba(0,0,0,0.4));
     animation: fadeIn 0.5s ease;
 }
-
 .aviso-mesa-vazia {
     color: rgba(255, 255, 255, 0.529);
     text-align: center;
     font-weight: bold;
 }
-
 /* --- BARRA DE PROGRESSO --- */
 .barra-progresso-container {
     /* Largura da barra */
     width: 40%; 
-    height: 20px;
-    
+    height: 20px;    
     background: #2d3436;
     border: 2px solid #000;
-    border-radius: 10px;
-    
+    border-radius: 10px;    
     /* POSICIONAMENTO FIXO NA MESA */
     position: absolute; /* Permite fixar em um lugar exato */
     bottom: -10px;       /* Cola no fundo da mesa (logo acima da fila) */
     left: 50%;          /* Posiciona o início no meio da tela */
     transform: translateX(-50%); /* Ajusta para ficar perfeitamente centralizado */
-    z-index: 10;        /* Garante que fique acima da imagem do monstro se ela for muito grande */
-    
+    z-index: 10;        /* Garante que fique acima da imagem do monstro se ela for muito grande */    
     /* Removemos a margem antiga pois não precisamos mais dela */
     margin-bottom: 0; 
     overflow: hidden;
 }
-
 .barra-progresso-fill {
     height: 100%;
     background: linear-gradient(90deg, #e67e22, #f1c40f);
     width: 0%;
     transition: width 1s linear;
 }
-
 .texto-progresso {
     position: absolute;
     top: 0; left: 0; right: 0;
@@ -734,7 +602,6 @@ const paginaAnterior = () => {
     text-shadow: 1px 1px 1px #000;
     line-height: 15px;
 }
-
 /* --- FILA DE PROCESSAMENTO --- */
 .fila-processamento {
     display: flex;
@@ -742,32 +609,25 @@ const paginaAnterior = () => {
     gap: 10px; 
     padding: 6px 12px;
     margin: 0 auto 20px auto;
-    width: 65%;
-    
+    width: 65%;    
     background: #e4e7eb;
     border-radius: 50px;
     border: 1px solid #dcdde1;
-    box-shadow: inset 0 2px 5px rgba(0,0,0,0.05);
-    
-    /* Desktop não precisa de scroll, pois 7 itens cabem na tela */
+    box-shadow: inset 0 2px 5px rgba(0,0,0,0.05);    
     flex-wrap: wrap; 
     justify-content: center;
 }
-
 .slot-fila {
     /* DESKTOP (Padrão): Tamanho Grande Anterior */
     width: 50px;
-    height: 50px;
-    
+    height: 50px;    
     background: transparent;
     position: relative;
     display: flex;
     align-items: center;
     justify-content: center;
 }
-
 .slot-fila:last-child { border-right: none; }
-
 /* Slot Ocupado (Desktop) */
 .slot-fila:has(.item-fila-conteudo) {
     background: #fff;
@@ -775,29 +635,24 @@ const paginaAnterior = () => {
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     transform: scale(0.9);
 }
-
 .slot-vazio {
     width: 10px; height: 10px;
     background: #bdc3c7;
     border-radius: 50%;
     opacity: 0.5;
 }
-
 /* --- VERSÃO MOBILE (Tela menor que 768px) --- */
 @media (max-width: 768px) {
     /* --- 1. MESA (Volta ao tamanho visual agradável) --- */
     .mesa-processamento {
         /* Altura reduzida para não ocupar muito espaço vertical */
-        height: 200px; 
-        
+        height: 200px;         
         /* 'contain' garante que a imagem da mesa apareça inteira, sem zoom excessivo */
         background-size: contain; 
-        background-position: center bottom;
-        
+        background-position: center bottom;        
         /* AQUI ESTÁ O TRUQUE DO POSICIONAMENTO: */
         /* Reduzimos o "colchão" de baixo. Quanto menor esse número, mais baixo o monstro fica. */
         padding-bottom: 92px; 
-        
         /* Pequeno ajuste de margem externa */
         margin-bottom: 10px;
     }
@@ -818,29 +673,6 @@ const paginaAnterior = () => {
         
         /* Esconde barra de rolagem */
         scrollbar-width: none;
-    }
-    .painel-controle-camaraProcessamento { 
-        flex-direction: column; 
-        height: auto;
-        /* Adiciona um espaço simples entre o card (topo) e o catálogo (baixo) */
-        gap: 20px; 
-        align-items: center; /* Mantém o card centralizado */
-    }
-    /* A linha vertical DEVE sumir no celular */
-    .linha-divisoria {
-        display: none !important;
-    }
-
-    /* Garante que o card não tenha margens laterais estranhas */
-    .esfolador-ativo {
-        margin: 0 !important;
-        margin-bottom: 10px !important; /* Um respiro extra antes do catálogo */
-    }
-
-    /* O catálogo volta a ocupar 100% da largura */
-    .lado-direito-filtros {
-        width: 100%;
-        padding: 0;
     }
     .fila-processamento::-webkit-scrollbar { display: none; }
     .barra-progresso-container {
@@ -931,6 +763,38 @@ const paginaAnterior = () => {
     cursor: not-allowed;
     filter: grayscale(1);
 }
+/* --- Opção A: Estilo Clean / Fosco --- */
+
+/* Quando bloqueado por nível */
+.card-selecao-carcaca.nivel-insuficiente {
+    opacity: 0.6; /* Fica meio apagadinho */
+    background: #fdfdfd; /* Fundo levemente diferente */
+    cursor: not-allowed;
+    border-color: #ecf0f1; /* Borda bem suave */
+}
+
+/* Deixa a imagem preto e branco para indicar que não pode usar */
+.nivel-insuficiente .icon-carcaca-btn {
+    filter: grayscale(100%);
+    opacity: 0.7;
+}
+
+/* O texto do nome fica cinza */
+.nivel-insuficiente .nome-carcaca {
+    color: #95a5a6;
+}
+
+/* A Etiqueta que substitui o "+" */
+.badge-requisito {
+    background: #bdc3c7; /* Cinza neutro */
+    color: #fff;
+    font-size: 0.7em;
+    font-weight: bold;
+    padding: 2px 6px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
 
 .icon-carcaca-btn { width: 40px; height: 40px; object-fit: contain; }
 .info-carcaca-btn { flex: 1; display: flex; flex-direction: column; }
@@ -942,21 +806,8 @@ const paginaAnterior = () => {
     from { transform: translateY(-20px); opacity: 0; }
     to { transform: translateY(0); opacity: 1; }
 }
-
-/* --- PAINEL DIREITO (INFO) --- */
-.lado-direito-filtros {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    /* Adiciona uma borda sutil para separar do card do funcionário */
-    padding-left: 15px;
-}
 /* Header Flexível para alinhar Título e Botões */
 .header-catalogo {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
     margin-bottom: 8px;
     border-bottom: 1px solid #ecf0f1;
     padding-bottom: 4px;
@@ -966,8 +817,6 @@ const paginaAnterior = () => {
     font-weight: bold;
     color: #7f8c8d;
     text-transform: uppercase;
-    margin: 0; /* Remove margem pois o header já cuida disso */
-    border: none; /* Remove borda antiga */
 }
 /* Controles de Paginação */
 .controles-paginacao {

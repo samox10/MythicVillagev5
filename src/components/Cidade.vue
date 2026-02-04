@@ -1,12 +1,6 @@
 <script setup>
   import { jogo, acoes, limites } from '../jogo.js';
-  
-  // Função auxiliar para formatar tempo (ex: 65s -> 1:05)
-  const formatarTempo = (s) => {
-    const m = Math.floor(s / 60);
-    const sec = s % 60;
-    return `${m}:${sec.toString().padStart(2, '0')}`;
-  };
+  import { formatarTempo} from '../utilidades.js';
 
   // Helper para verificar se tem recursos (para deixar o botão cinza ou colorido)
   const podePagar = (custoObj) => {

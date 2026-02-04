@@ -1,7 +1,9 @@
 <script setup>
   import { ref, computed, onMounted, onUnmounted } from 'vue';
-  import { jogo, acoes, ui, populacaoTotal, custoContratacao, bonusSorteTotal, limites, obterBuffRaca } from '../jogo.js';
-  import { ORDEM_TIERS, DESBLOQUEIO_POR_NIVEL, obterProbabilidades, CLASSES_RPG, corTier } from '../funcionarios.js';
+  import { jogo, acoes, ui, populacaoTotal, custoContratacao, bonusSorteTotal, obterBuffRaca } from '../jogo.js';
+  import { ORDEM_TIERS, DESBLOQUEIO_POR_NIVEL, obterProbabilidades, CLASSES_RPG, corTier, nomeProfissao } from '../funcionarios.js';
+  import { formatarNumero } from '../utilidades.js';
+
   
 
     const mostrarBotaoTopo = ref(false);
@@ -90,11 +92,6 @@ const resultadoFusao = ref(null);
       return { original, ganho };
   };
   const idiomaAtual = 'pt-BR'; // Se mudar para 'en-US', os pontos viram vírgulas
-  const formatarNumero = (valor) => {
-      if (!valor) return '0';
-      // Agora ele usa a variável em vez do texto fixo
-      return valor.toLocaleString(idiomaAtual);
-  };
   const dadosFusaoPreview = ref(null);
   const abaAtual = ref('contratar'); 
   const ordemAtual = ref('tier'); // Pode ser: 'tier', 'raca', 'profissao'
@@ -195,27 +192,6 @@ const resultadoFusao = ref(null);
   const formatarRaca = (raca) => {
       if (!raca) return 'Desconhecida';
       return raca.charAt(0).toUpperCase() + raca.slice(1);
-  };
-
-  const nomeProfissao = (func) => {
-      const mapa = {
-            // Mantidos (Sem alteração solicitada)
-            'minerador': { m: 'Minerador', f: 'Mineradora' },
-            'lenhador':  { m: 'Lenhador',  f: 'Lenhadora' },
-            'esfolador':   { m: 'Esfolador',   f: 'Esfoladora' },
-            'ferreiro':  { m: 'Ferreiro',  f: 'Ferreira' },
-            'saqueador': { m: 'Saqueador',  f: 'Saqueadora' },
-            'batedor':   { m: 'Batedor',    f: 'Batedora' },
-            'heroi': { m: 'Herói', f: 'Heroína' },
-            'academico':     { m: 'Acadêmico',   f: 'Acadêmica' },
-            'administrador': { m: 'Administrador', f: 'Administradora' },
-            'enfermeiro':    { m: 'Enfermeiro',  f: 'Enfermeira' },
-            'lorde':         { m: 'Lorde',       f: 'Lady' },
-            'tesoureiro':    { m: 'Tesoureiro',  f: 'Tesoureira' }
-        };
-      const p = func.profissao.toLowerCase();
-      if (!mapa[p]) return p.charAt(0).toUpperCase() + p.slice(1);
-      return func.sexo === 'feminino' ? mapa[p].f : mapa[p].m;
   };
   const getNomeImagem = (idOriginal) => {
     const mapa = {
@@ -349,6 +325,7 @@ const resultadoFusao = ref(null);
             };
             modoFusao.value = 'confirmacao';
         }
+        
     );
 };
 // Função para fechar o resultado e voltar ao início

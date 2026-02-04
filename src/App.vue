@@ -24,6 +24,8 @@ body {
 </style>
 
 <script setup>
+  import Login from './components/Login.vue';
+  import { definirIdUsuario } from './jogo.js';
   import { ref, onMounted } from 'vue';
   import { jogo, limites, populacaoTotal, acoes, iniciarLoop, iniciarSave, resetar, dadosMinerais } from './jogo.js';
   
@@ -37,6 +39,24 @@ body {
   import Modal from './components/Modal.vue';
   import Biblioteca from './components/Biblioteca.vue';
 
+  const usuarioLogado = ref(false);
+  // 1. FUNÇAO PRA LOGAR
+  function aoLogar(idDoUsuario) {
+      // Salva no navegador para não perder no F5
+      localStorage.setItem('usuario_ativo_id', idDoUsuario);
+      
+      definirIdUsuario(idDoUsuario); 
+      usuarioLogado.value = true; 
+  }
+  // 2. FUNÇÃO PARA SAIR (DESCONECTAR)
+  const desconectar = () => {
+      if(confirm("Deseja realmente sair?")) {
+          // Limpa do navegador
+          localStorage.removeItem('usuario_ativo_id');
+          // Recarrega a página para voltar ao Login limpo
+          window.location.reload();
+      }
+  };
   // --- ESTADO DA NAVEGAÇÃO ---
   const categoriaAtual = ref('cidade'); 
   const abaAtual = ref('visao_geral');
@@ -83,18 +103,47 @@ body {
     const sec = s % 60;
     return `${h > 0 ? h + 'h ' : ''}${m}m ${sec}s`;
   };
+  const carregando = ref(true); // Começa carregando
 
-  onMounted(() => {
+  onMounted(async () => { // Adicione 'async' aqui
+    const idSalvo = localStorage.getItem('usuario_ativo_id');
+    
+    if (idSalvo) {
+        console.log("Login restaurado. Carregando dados...");
+        carregando.value = true; // Garante que a tela de load apareça
+
+        // O 'await' faz o site ESPERAR o download do save terminar
+        await definirIdUsuario(idSalvo);
+        
+        usuarioLogado.value = true;
+    }
+    
+    // Terminou tudo (ou não tinha login salvo), libera a tela
+    carregando.value = false;
+
     iniciarLoop();
     iniciarSave();
   });
 </script>
 
 <template>
+  <div v-if="carregando" class="tela-loading">
+      <div class="loading-content">
+          <h1>🏰 Mythic Village</h1>
+          <p>Carregando sua vila...</p>
+          <div class="spinner"></div>
+      </div>
+  </div>
+  <div v-else>
+  <Login v-if="!usuarioLogado" @aoLogar="aoLogar" />
   <div class="jogo">
     
     <div class="header-geral">
-       <div class="header-bg"></div>
+       <div class="header-bg">
+           <button v-if="usuarioLogado" class="btn-sair-header" @click="desconectar" title="Sair do Jogo">
+               ❌ Sair
+           </button>
+       </div>
     </div>
 
     <div v-if="jogo.construindo.tipo" class="barra-construcao-clean animacao-entrada">
@@ -114,7 +163,7 @@ body {
       <div class="recursos-row principal">
         <div class="res-item" title="Couro"><img src="/assets/ui/icone_couro.png" class="icon-moeda-topo"> {{ Math.floor(jogo.couro) }}</div>
         <div class="res-item" title="Madeira"><img src="/assets/ui/icone_madeira.png" class="icon-moeda-topo"> {{ Math.floor(jogo.madeira).toLocaleString('pt-BR') }}</div>
-        <div class="res-item" title="Comida"><img src="/assets/ui/icone_comida.png" class="icon-moeda-topo"> {{ Math.floor(jogo.comida).toLocaleString('pt-BR') }}</div>
+        <div class="res-item" title="carne"><img src="/assets/ui/icone_carne.png" class="icon-moeda-topo"> {{ Math.floor(jogo.carne).toLocaleString('pt-BR') }}</div>
         <div class="res-item destaque-ouro" title="Ouro"><img src="/assets/ui/icone_goldC.png" class="icon-moeda-topo"> {{ Math.floor(jogo.ouro).toLocaleString('pt-BR') }}</div>
       </div>
 
@@ -209,6 +258,7 @@ body {
     </div>
 
   </div>
+  </div>
 </template>
 
 <style scoped>
@@ -234,6 +284,10 @@ body {
   background-size: cover;
   background-position: center;
   border-bottom: 1px solid #bdc3c7; 
+}
+.btn-sair-header:hover {
+    background: #e74c3c; /* Vermelho ao passar o mouse */
+    border-color: #c0392b;
 }
 @media (max-width: 400px) {
   .header-bg { height: 80px; max-height: 80px; }

@@ -184,5 +184,149 @@
     font-style: normal;
 }
 
+.painel-controle-global {
+    display: flex; 
+    align-items: center; 
+    justify-content: flex-start; 
+    background: #ecf0f1; 
+    border: 1px solid #bdc3c7; 
+    border-radius: 8px;
+    padding: 10px 15px; 
+    /* O gap define o espaço base, mas a margem da linha vai personalizar isso */
+    gap: 0; 
+    height: auto; 
+    min-height: 180px; 
+}
+/* --- ENFERMEIRO --- */
+.funcionario-ativo {
+    width: 100%;
+    max-width: 235px; 
+    margin: 0;  
+    background: #ffffff;
+    border-width: 2px; 
+    border-style: solid;
+    border-radius: 8px; 
+    overflow: hidden;
+    display: flex; 
+    flex-direction: column;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+    flex-shrink: 0; 
+    margin-right: 0;
+}
+.funcionario-ativo .card-mid { 
+    flex: 1; 
+    display: flex; 
+    align-items: center; 
+    padding: 5px 5px 5px 15px; 
+    background: #fff; 
+}
+.card-topo {
+    position: relative; /* IMPORTANTE: É a âncora do posicionamento */
+    display: flex;
+    align-items: center;
+    padding: 1px 5px;
+    padding-right: 35px; /* Garante que o texto do nome não fique embaixo do ícone */
+    color: #fff; 
+    font-weight: bold;
+    height: 32px; /* Altura fixa para o cabeçalho não pular */
+}
+.topo-esquerda { 
+    display: flex; 
+    align-items: center; 
+    gap: 6px; 
+}
+.tier-badge { 
+    background: rgba(0,0,0,0.3); 
+    padding: 1px 5px; 
+    border-radius: 4px; 
+    font-size: 0.9em; 
+}
+/* BOLINHA BRANCA DO ICONE DA PROFISSÃO */
+.molde-icone-prof {
+    position: absolute;
+    top: 2px;
+    right: 6px;
+    background-color: #ffffff;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    border: 2px solid rgba(255, 255, 255, 0.5);
+    z-index: 10;
+}
+/* TAMANHO DO ICONE DA PROFISSAO NA BOLINHA BRANCA */
+.img-prof-inner { 
+    width: 19px; 
+    height: 19px; 
+    object-fit: contain; 
+}
+.avatar-box {
+    width: 80px;
+    display: flex; align-items: center; justify-content: center;
+    background: #f1f2f6; border-right: 1px solid #dfe4ea;
+}
+.avatar-func { 
+    width: 90px;
+    height: 90px;
+    border-radius: 4px; border: 1px solid #ced6e0; background: #fff; 
+}
+.tabela-dados-func { flex: 1; display: flex; flex-direction: column; font-size: 0.75em; }
+
+.linha-dado {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 3px 6px; border-bottom: 1px solid #f1f2f6; color: #2f3542;
+}
+.linha-dado:nth-child(even) { background-color: #f8f9fa; }
+.dado-label { color: #747d8c; font-weight: 600; }
+.dado-valor { font-weight: bold; color: #2f3542; display: flex; align-items: center; gap: 3px; white-space: nowrap; }
+.capitalize { text-transform: capitalize; }
+.tiny-coin { width: 11px; height: 11px; }
+.rodape-card {
+    background: #fff;
+    border-top: 1px solid #f1f2f6;
+    padding: 6px 4px;
+    text-align: center;
+    display: flex; flex-direction: column; gap: 2px;
+}
+.info-produtividade { font-size: 0.75em; color: #2c3e50; font-weight: 600; }
+.frase-efeito { font-size: 0.7em; font-style: italic; color: #a4b0be; }
+.linha-divisoria {
+    width: 2px;
+    height: 160px;
+    background: linear-gradient(
+        to bottom,
+        transparent 0%,
+        rgba(160, 160, 160, 0.6) 20%,
+        rgba(160, 160, 160, 0.6) 80%,
+        transparent 100%
+    );
+    margin: 0 15px;
+    flex-shrink: 0;
+}
+.lado-direito-filtros {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    /* Adiciona uma borda sutil para separar do card do funcionário */    
+    align-items: center; /* CENTRALIZA TUDO HORIZONTALMENTE */
+    justify-content: center;  
+}
+@media (max-width: 768px) {
+    .painel-controle-global { 
+        flex-direction: column; 
+        height: auto;
+        gap: 10px;         
+    }
+    .linha-divisoria {
+        display: none !important;
+    }
+
+}
+
+
 
 

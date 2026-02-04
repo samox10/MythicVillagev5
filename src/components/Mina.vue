@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { jogo, acoes, calcularProducaoPorMinuto, obterBuffRaca } from '../jogo.js';
 import { tabelaMinerais } from '../dados.js';
+import { formatarNumero, getImagemMinerio } from '../utilidades.js';
 
 const mostrarBotaoTopo = ref(false);
     // Função que verifica a posição da tela
@@ -80,10 +81,6 @@ const isSlotBloqueado = (minerio, slotIdx) => {
     if (minerio.id === 'pedra') return jogo.mina < 1; 
     return jogo.mina < (minerio.nivel + 1);
 };
-
-const getImagemMinerio = (id) => `/assets/recursos/min_${id.replace('_min', '')}.png`;
-const formatarNumero = (n) => n ? n.toLocaleString('pt-BR') : '0';
-
 // --- CÁLCULOS VISUAIS (SISTEMA DA TAVERNA) ---
 
 // 1. Calcula a produtividade TOTAL (O número grande, ex: 59%)

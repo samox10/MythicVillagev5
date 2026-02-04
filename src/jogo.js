@@ -1,6 +1,7 @@
+import { supabase } from './supabase.js';
 import { reactive, computed } from 'vue';
-import { tabelaMinerais, tabelaItens, tabelaCarcacas } from './dados.js';
-import { gerarFuncionario, criarObjetoFuncionario, processarFusao, calcularChancesFusao, ORDEM_TIERS } from './funcionarios.js';
+import { tabelaMinerais, tabelaItens, tabelaCarcacas, catalogoMedicamentos, tiposFerimentos } from './dados.js';
+import { gerarFuncionario, processarFusao, calcularChancesFusao, ORDEM_TIERS, profissoesDeRisco } from './funcionarios.js';
 
 // --- DADOS DE ESTUDO BIBLIOTECA---
 export const DADOS_ESTUDO = {
@@ -8,12 +9,7 @@ export const DADOS_ESTUDO = {
     'tabula_pedra':     { nome: 'Tábula de Pedra',  xp: 50, tempo: 300, cor: '#95a5a6' }, // 5 min
     'tomo_antigo':      { nome: 'Tomo Criptografado', xp: 200, tempo: 1200, cor: '#8e44ad' } // 20 min
 };
-// --- DADOS DE PROCESSAMENTO DE CARCAÇAS ---
-export const DADOS_PROCESSAMENTO = {
-    'carcaca_javali': { nome: 'Carcaça de Javali', carne: 50, couro: 10, tempo: 30 },
-    'carcaca_lobo':   { nome: 'Carcaça de Lobo',   carne: 30, couro: 25, tempo: 45 },
-    'carcaca_touro':  { nome: 'Carcaça de Touro',  carne: 120, couro: 40, tempo: 120 }
-};
+export const TOTAL_LEITOS = 4;
 // --- CONFIGURAÇÃO DOS PRÉDIOS (NOVO) ---
 // Aqui você define as regras de cada prédio em um lugar só.
 // attrNivel: nome da variável dentro do 'jogo' que guarda o nível
@@ -80,6 +76,13 @@ const DADOS_CONSTRUCOES = {
         tempoBase: 30 
     },
 };
+// REGRAS DE ESCALA DE QUANTOS FUNCIONARIOS SOFREM ACIDENTE DE TRABALHO ( MIN = MINIMO DE FUNCIONARIOS NAO COMBATENTES, MAX = MAXIMO DE FUNCIONARIOS NAO COMBATENTES, limiteOffline = maximo de machucados de uma vez quando logar novamente )
+const REGRAS_DE_ESCALA = [
+    { min: 0,  max: 5,   chance: 0.00, limiteOffline: 0 },  // 0 a 5: Imune (0%)
+    { min: 6,  max: 14,  chance: 0.10, limiteOffline: 2 },  // 6 a 14: 10% de chance
+    { min: 15, max: 24,  chance: 0.15, limiteOffline: 5 },  // 15 a 24: 15% de chance
+    { min: 25, max: 999, chance: 0.20, limiteOffline: 9 }   // 25+: 20% de chance
+];
 export const ui = reactive({
     modal: { aberto: false, titulo: '', texto: '', tipo: 'confirmacao', onConfirm: null }
 });
@@ -102,6 +105,7 @@ async function verificarNovoDia() {
         jogo.contratacoesEliteHoje = 0;
         processarPagamentoSalarios(); // Cobra salários na virada
         // console.log("Dia virou! Contadores resetados.");
+        salvarNaNuvem();
     }
 }
 
@@ -128,7 +132,7 @@ export const jogo = reactive({
     equipamentos: [],
     poMistico: 0,
     tempoOciosidadeFila: 0,
-    madeira: 100, comida: 100, ouro: 500, ciencia: 0, couro: 0,
+    madeira: 100, carne: 100, ouro: 500, ciencia: 0, couro: 0,
     funcionarios: [],
 
     // Controle Diário
@@ -144,7 +148,13 @@ export const jogo = reactive({
     alocacaoBiblioteca: [null, null, null], // Slots de estudo na biblioteca
     camaraProcessamento: 0, custoCamaraProcessamento: { madeira: 1, pedra: 1, ouro: 1 }, // Custo inicial da camara de processamento
     alocacaoCamaraProcessamento: [null], // Slots de funcionarios na camara de processamento ( 1 slot por enquanto )
-    processamento: Array(8).fill({ item: null, tempoTotal: 0, tempoRestante: 0, progresso: 0 }), // 8 slots de processamento de carcaças
+    // Usamos Array.from para garantir que cada slot seja um objeto ÚNICO na memória
+    processamento: Array.from({ length: 8 }, () => ({ 
+        item: null, 
+        tempoTotal: 0, 
+        tempoRestante: 0, 
+        progresso: 0 
+    })),
 
     casas: 0, custoCasa: { madeira: 50, pedra: 10 },
     construindo: { tipo: null, tempoRestante: 0, tempoTotal: 0 },
@@ -152,6 +162,27 @@ export const jogo = reactive({
     desempregados: 0, lenhadores: 0, esfoladores: 0, academicos: 0, mineradores: 0, populacaoMax: 5,
     enfermaria: 0, custoEnfermaria: { madeira: 400, pedra: 200 },
     alocacaoEnfermaria: [null], // Slots de funcionarios na enfermaria ( 1 slot por enquanto )
+    modoAutomaticoEnfermaria: false, // O botão liga/desliga
+    tempoSemPaciente: 0, // Contador para ativar sozinho após 30min
+    leitos: Array.from({ length: TOTAL_LEITOS }, (_, index) => ({ id: index, ocupado: null })),
+    filaDeEspera: [],
+    // Loadout também precisa ser global para o loop saber qual item usar
+    loadoutEnfermaria: {
+        'bandagem': 'bandagem_comum',
+        'pocao': 'pocao_vida_p',
+        'ervas': 'ervas_comuns',
+        // Adicione as outras categorias padrão para evitar erro se o jogo buscar
+        'talisma': 'talisma_cura', 
+        'talas': 'tala_madeira',   // (Se criar o item depois)
+        'pomadas': 'pomada_base',  // (Se criar o item depois)
+        'antidotos': 'antidoto_p', // (Se criar o item depois)
+        'tonicos': 'tonico_revigorante' // (Se criar o item depois)
+    },
+    // SISTEMA DE ACIDENTES DE TRABALHO DAS PROFISSOES NÃO COMBATENTES
+    sistemaAcidentes: {
+        proximaChecagem: Date.now(), 
+        ultimoEvento: "Sistema iniciado"
+    },
     estudos: [
         { item: null, tempoTotal: 0, tempoRestante: 0, progresso: 0 }, // Slot 0 (Principal)
         { item: null, tempoTotal: 0, tempoRestante: 0, progresso: 0 }, // Slot 1 (Fila 1)
@@ -164,16 +195,11 @@ export const jogo = reactive({
         tabula_pedra: 2,
         tomo_antigo: 1 
     },
-    mina: 0, custoMina: { madeira: 200, comida: 100 },    
+    mina: 0, custoMina: { madeira: 200, carne: 100 },    
     minerios: { pedra: 20, cobre: 0, ferro: 0, prata: 0, ouro_min: 0, obsidiana: 0, titanio: 0, diamante: 0, mithril: 0, aetherium: 0 },
-    prefeitura: 1, custoPrefeitura: { madeira: 100, pedra: 100, comida: 50 },
+    prefeitura: 1, custoPrefeitura: { madeira: 100, pedra: 100, carne: 50 },
     taverna: 0, custoTaverna: { madeira: 200, pedra: 100 },
     ultimaAtualizacao: Date.now(),
-    listaTechs: [
-        { id: 'machado_ferro', nome: 'Machados de Ferro', desc: 'Lenhadores +50%', custo: { ciencia: 50 }, feito: false },
-        { id: 'silos', nome: 'Silos', desc: 'Armazéns +50%', custo: { ciencia: 100 }, feito: false },
-        { id: 'picareta_diamante', nome: 'Brocas de Diamante', desc: 'Mineração 2x mais rápida', custo: { ciencia: 1000, diamante: 10 }, feito: false }
-    ]
 });
 
 // --- COMPUTEDS ---
@@ -297,83 +323,140 @@ function finalizarCraft(index) {
     }
     // Remove da lista pois acabou
     jogo.craftando.splice(index, 1);
+    salvarNaNuvem();
 }
 function processarOffline(segundosOffline) {
     if (segundosOffline <= 0) return;
-    
-    // console.log(`Processando ${segundosOffline}s offline...`);
 
-    // --- 1. MINERAÇÃO (Lógica Antiga Mantida) ---
-    const minutosOffline = segundosOffline / 60;
-    const eficiencia = 0.8; // 80%
+    // --- CONFIGURAÇÃO DA PENALIDADE ---
+    const penalidadeOffline = 1; // 0.8 = 80% de eficiência (20% de perda)
+    
+    // Calcula o tempo ÚTIL (com a penalidade)
+    let tempoParaGastar = segundosOffline * penalidadeOffline;
+    
+    console.log(`[OFFLINE] Tempo Real: ${segundosOffline.toFixed(1)}s | Tempo Útil (100%): ${tempoParaGastar.toFixed(1)}s`);
+
+    // --- 1. MINERAÇÃO (Também sofre a penalidade) ---
+    const minutosUteis = tempoParaGastar / 60;
+    const techPicareta = jogo.listaTechs ? jogo.listaTechs.find(t => t.id === 'picareta_diamante') : null;
+    const multiplicadorTech = (techPicareta && techPicareta.feito) ? 2 : 1;
 
     tabelaMinerais.forEach(m => {
         const prodPorMinuto = calcularProducaoPorMinuto(m.id);
         if (prodPorMinuto > 0) {
-            const totalGerado = prodPorMinuto * minutosOffline * eficiencia;
+            const totalGerado = prodPorMinuto * multiplicadorTech * minutosUteis;
             jogo.minerios[m.id] = Math.min((jogo.minerios[m.id] || 0) + Math.floor(totalGerado), limites.recursos);
         }
     });
 
-    // --- 2. CÂMARA DE PROCESSAMENTO (NOVA LÓGICA DE FILA) ---
-    // Clonamos o tempo total disponível para gastar na fila
-    let tempoParaGastar = segundosOffline * 0.8;
+    // --- 2. CÂMARA DE PROCESSAMENTO ---
+    // Proteção de 24h
+    // --- 2. CÂMARA DE PROCESSAMENTO (VERSÃO FINAL: LÊ DO DADOS.JS) ---
+    let tempoProcessamento = tempoParaGastar;
+    if (tempoProcessamento > 86400) tempoProcessamento = 86400; 
 
-    // Proteção: Limite máximo de 24h offline para não travar o loop se o cara ficar 1 ano fora
-    if (tempoParaGastar > 86400) tempoParaGastar = 86400; 
+    let itensProcessados = 0;
 
-    // Loop enquanto tivermos tempo E houver algo na mesa ou na fila
-    while (tempoParaGastar > 0) {
+    if (jogo.processamento && jogo.processamento.length > 0) {
         
-        // 1. Verifica se a mesa está vazia, mas tem alguém na fila esperando
-        if (!jogo.processamento[0].item && jogo.processamento[1].item) {
-            jogo.processamento.shift();
-            jogo.processamento.push({ item: null, tempoTotal: 0, tempoRestante: 0, progresso: 0 });
-        }
+        while (tempoProcessamento > 0 && jogo.processamento.length > 0) {
+            const slotAtual = jogo.processamento[0];
 
-        const slotAtual = jogo.processamento[0];
-
-        // Se não tem nada na mesa, acabou o trabalho. Para o loop.
-        if (!slotAtual || !slotAtual.item) break;
-
-        // 2. Calcula velocidade do funcionário (se tiver esfolador, é mais rápido)
-
-        // 3. Simula o processamento
-        // Quanto tempo REAL leva para terminar este item?
-        // Ex: Falta 10s, velocidade 2x -> Leva 5 segundos reais.
-        const segundosReaisNecessarios = slotAtual.tempoRestante;
-
-        if (tempoParaGastar >= segundosReaisNecessarios) {
-            // CENÁRIO A: Temos tempo para terminar este item COMPLETO
-            
-            // Consome o tempo do nosso banco de horas
-            tempoParaGastar -= segundosReaisNecessarios;
-
-            // Entrega recompensas
-            const receita = tabelaCarcacas.find(c => c.id === slotAtual.item);
-            if (receita) {
-                jogo.comida += (receita.recursos.carne || 0);
-                jogo.couro = Math.min(jogo.couro + (receita.recursos.couro || 0), limites.recursos);
+            // Se vazio, pula
+            if (!slotAtual || !slotAtual.item) {
+                jogo.processamento.shift();
+                continue;
             }
 
-            // Remove o item e puxa o próximo (faz a fila andar)
-            jogo.processamento.shift();
-            jogo.processamento.push({ item: null, tempoTotal: 0, tempoRestante: 0, progresso: 0 });
+            // --- CORREÇÃO AQUI: Busca na tabelaCarcacas (dados.js) ---
+            const dadosItem = tabelaCarcacas.find(c => c.id === slotAtual.item);
 
-        } else {
-            // CENÁRIO B: O tempo acabou no meio do corte
-            
-            // Avança o progresso o máximo que der
-            const progressoFeito = tempoParaGastar; // Progresso 1:1;
-            slotAtual.tempoRestante -= progressoFeito;
-            
-            // Atualiza visual da barra (opcional aqui, mas bom pra garantir)
-            slotAtual.progresso = 100 - ((slotAtual.tempoRestante / slotAtual.tempoTotal) * 100);
+            if (!dadosItem) {
+                // Se não achou na tabela oficial, aí sim remove
+                console.log(`Item desconhecido removido: ${slotAtual.item}`);
+                jogo.processamento.shift();
+                continue;
+            }
 
-            // Zera o tempo disponível para sair do loop
-            tempoParaGastar = 0;
+            // Se o slot não foi iniciado, pega o tempo da tabela
+            if (slotAtual.tempoRestante <= 0 && slotAtual.progresso === 0) {
+                 slotAtual.tempoRestante = dadosItem.tempo;
+                 slotAtual.tempoTotal = dadosItem.tempo;
+            }
+
+            // Calcula velocidade (Esfolador)
+            let velocidade = 1;
+            const func = jogo.funcionarios.find(f => f.profissao === 'esfolador' && f.diasEmGreve === 0);
+            if (func) velocidade += func.bonus;
+            if (velocidade < 0.1) velocidade = 0.1;
+
+            const custoParaTerminar = slotAtual.tempoRestante / velocidade;
+
+            if (tempoProcessamento >= custoParaTerminar) {
+                // --- TERMINOU O ITEM ---
+                tempoProcessamento -= custoParaTerminar;
+                
+                // --- ENTREGA RECURSOS (Lê de dadosItem.recursos) ---
+                if (dadosItem.recursos) {
+                    for (const [chave, qtd] of Object.entries(dadosItem.recursos)) {
+                        jogo.itens[chave] = (jogo.itens[chave] || 0) + qtd;
+                    }
+                }
+
+                // Remove da fila e repõe slot vazio no final
+                jogo.processamento.shift();
+                jogo.processamento.push({ item: null, tempoTotal: 0, tempoRestante: 0, progresso: 0 });
+                itensProcessados++;
+
+            } else {
+                // --- NÃO TERMINOU ---
+                const avanco = tempoProcessamento * velocidade;
+                slotAtual.tempoRestante -= avanco;
+                
+                if (slotAtual.tempoTotal > 0) {
+                    slotAtual.progresso = 100 - ((slotAtual.tempoRestante / slotAtual.tempoTotal) * 100);
+                }
+                tempoProcessamento = 0;
+            }
         }
     }
+    
+    if (itensProcessados > 0) {
+        console.log(`[OFFLINE] Processou ${itensProcessados} itens da Tabela de Carcaças.`);
+        mostrarAviso("Relatório Offline", `Sua equipe processou ${itensProcessados} carcaças enquanto você estava fora.`);
+    }
+    // --- INÍCIO DO CÓDIGO FERRARIA OFFLINE ---
+    // Verifica se existe fila de craft na ferraria
+    if (jogo.craftando && jogo.craftando.length > 0) {
+        // Cria uma cópia do tempo offline para gastar na fila da ferraria
+        let tempoFerraria = tempoOffline; 
+        // COMANDO DE CONSOLE: Mostra quanto tempo tem pra gastar
+        console.log(`%c[OFFLINE] Tempo disponível para Ferraria: ${tempoFerraria.toFixed(1)}s`, "color: cyan; font-weight: bold");
+
+        // Passa item por item da fila
+        for (let i = 0; i < jogo.craftando.length; i++) {
+            let item = jogo.craftando[i];
+            
+            // Se o tempo acabou, para o loop
+            if (tempoFerraria <= 0) break;
+
+            // Só desconta se o item ainda precisa de tempo
+            if (item.tempoRestante > 0) {
+                if (tempoFerraria >= item.tempoRestante) {
+                    // Caso 1: Ficou offline tempo suficiente para terminar este item
+                    tempoFerraria -= item.tempoRestante; // Gasta o tempo usado
+                    item.tempoRestante = 0; // Marca item como pronto (o jogo entrega ao abrir)
+                } else {
+                    // Caso 2: O tempo offline só adianta parte do item
+                    item.tempoRestante -= tempoFerraria;
+                    tempoFerraria = 0; // Zerou o tempo offline disponível
+                }
+                // COMANDO DE CONSOLE: Mostra o progresso individual
+                console.log(`[OFFLINE] 🔨 Item: ${item.item} | Avançou: ${tempoGasto.toFixed(1)}s | Falta: ${item.tempoRestante.toFixed(1)}s`);
+            }
+        }
+    }
+    // --- FIM DO CÓDIGO FERRARIA OFFLINE ---
 }
 // --- NOVA FUNÇÃO DE BUFF RACIAL DO PREFEITO ---
 export function obterBuffRaca(func) {
@@ -413,6 +496,142 @@ function calcularProducaoTotal(profissao) {
     });
     
     return producaoTotal;
+}
+// --- LÓGICA DE AUTOMAÇÃO DA ENFERMARIA ---
+function processarLogicaEnfermaria(deltaSegundos) {
+    // 1. Processar Cura nos Leitos (Tic Tac do tempo)
+    jogo.leitos.forEach(leito => {
+        if (leito.ocupado) {
+            leito.ocupado.tempoAtual += deltaSegundos;
+            
+            // QUANDO O TEMPO ACABA:
+            if (leito.ocupado.tempoAtual >= leito.ocupado.tempoTotal) {
+                
+                // --- NOVO CÓDIGO DE ALTA MÉDICA ---
+                // Verifica se esse paciente é um funcionário nosso
+                if (leito.ocupado.funcionarioId) {
+                    const funcionario = jogo.funcionarios.find(f => f.id === leito.ocupado.funcionarioId);
+                    if (funcionario) {
+                        funcionario.status = null; // Limpa o status 'doente'
+                        // Opcional: Console para você ver acontecendo
+                        console.log(`🏥 ALTA: ${funcionario.nome} está curado e voltou ao trabalho!`);
+                    }
+                }
+                // ----------------------------------
+
+                // Curou! Libera o leito (Código original)
+                leito.ocupado = null;
+            }
+        }
+    });
+
+    // 2. Verificar se tem leitos livres
+    const leitosLivres = jogo.leitos.filter(l => !l.ocupado);
+    
+    // LÓGICA DOS 30 MINUTOS (1800 segundos)
+    if (leitosLivres.length === jogo.leitos.length && jogo.filaDeEspera.length > 0) {
+        // Se todos os leitos estão vazios E tem gente na fila
+        jogo.tempoSemPaciente += deltaSegundos;
+        
+        // Se passou de 30 minutos ocioso, força o automático
+        if (jogo.tempoSemPaciente >= 1800 && !jogo.modoAutomaticoEnfermaria) {
+            jogo.modoAutomaticoEnfermaria = true;
+            mostrarAviso("Automação Ativada", "A enfermaria ficou ociosa por 30min e ativou o modo automático.", "aviso");
+        }
+    } else {
+        // Se tem alguém tratando ou fila vazia, reseta o timer
+        jogo.tempoSemPaciente = 0;
+    }
+
+    // 3. O Grande Loop do Modo Automático
+    if (jogo.modoAutomaticoEnfermaria && leitosLivres.length > 0 && jogo.filaDeEspera.length > 0) {
+        
+        // Pega o enfermeiro (para calcular poder)
+        const enfermeiro = jogo.funcionarios.find(f => f.profissao === 'enfermeiro' && f.diasEmGreve === 0);
+        
+        // Tenta encaixar pacientes nos leitos livres
+        leitosLivres.forEach(leito => {
+            if (jogo.filaDeEspera.length === 0) return;
+
+            // Varre a fila procurando alguém que possamos pagar o tratamento
+            let pacienteIndex = -1;
+            let itemUsado = null;
+            let dadosDoenca = null;
+
+            // Loop de busca na fila (para pular quem não temos remédio)
+            // Loop de busca na fila (para pular quem não temos remédio)
+            for (let i = 0; i < jogo.filaDeEspera.length; i++) {
+                const p = jogo.filaDeEspera[i];
+                dadosDoenca = tiposFerimentos[p.doenca || 'corte_leve'];
+                
+                // --- CORREÇÃO DE SEGURANÇA (NOVO) ---
+                // Se a doença não existir no banco de dados, removemos o paciente bugado
+                if (!dadosDoenca) {
+                    console.log("Paciente removido por erro na doença:", p.doenca);
+                    jogo.filaDeEspera.splice(i, 1); // Remove da lista
+                    i--; // Ajusta o índice para não pular o próximo
+                    continue; // Vai para o próximo loop
+                }
+                // ------------------------------------
+
+                // Qual item está configurado no loadout?
+                const idItemConfig = jogo.loadoutEnfermaria[dadosDoenca.reqCategoria];
+                const itemDados = catalogoMedicamentos.find(it => it.id === idItemConfig);
+                
+                // Tem estoque?
+                if (itemDados && (jogo.itens[itemDados.id] || 0) > 0) {
+                    pacienteIndex = i;
+                    itemUsado = itemDados;
+                    break; // Achou um tratável!
+                }
+            }
+
+            // Se achou alguém tratável
+            if (pacienteIndex !== -1 && itemUsado) {
+                const paciente = jogo.filaDeEspera[pacienteIndex];
+                
+                // Consome item
+                jogo.itens[itemUsado.id]--;
+
+                // Calcula tempo com PENALIDADE de 10% (1.10)
+                let tempoFinal = dadosDoenca.tempoBase / itemUsado.fatorCura;
+                
+                if (enfermeiro) {
+                    // Lógica Nova: Usa MEDICINA (poderEspecial) como % de redução
+                    const buffPct = obterBuffRaca(enfermeiro); 
+                    const fatorRaca = 1 + (buffPct / 100);
+                    
+                    // Ex: Medicina 20 * 1.1 (Buff) = 22% de redução
+                    const medicinaTotal = (enfermeiro.poderEspecial || 0) * fatorRaca;
+                    
+                    // Limite de segurança de 90% pra não zerar o tempo
+                    const porcentagemReducao = Math.min(90, medicinaTotal);
+                    
+                    // Aplica a redução (Ex: Tempo * (1 - 0.22))
+                    tempoFinal = tempoFinal * (1 - (porcentagemReducao / 100));
+                }
+
+                // APLICA A PENALIDADE DO MODO AUTO
+                tempoFinal = tempoFinal * 1.50; 
+
+                // Prepara objeto pro leito
+                const pacienteNoLeito = { ...paciente };
+                pacienteNoLeito.tempoTotal = tempoFinal;
+                pacienteNoLeito.tempoAtual = 0;
+
+                // Ocupa o leito
+                leito.ocupado = pacienteNoLeito;
+
+                // Remove da fila
+                jogo.filaDeEspera.splice(pacienteIndex, 1);
+            } else {
+                // Se rodou a fila toda e não achou ninguem com remédio, 
+                // PAUSA O AUTOMATICO para não ficar processando à toa
+                jogo.modoAutomaticoEnfermaria = false;
+                mostrarAviso("Sem Estoque", "Modo Automático pausado: Faltam medicamentos para os feridos da fila.");
+            }
+        });
+    }
 }
 
 // --- AÇÕES ---
@@ -462,6 +681,7 @@ export const acoes = {
 
         // 5. Inicia
         jogo.construindo = { tipo: tipo, tempoRestante: tempoTotal, tempoTotal: tempoTotal };
+        salvarNaNuvem();
     },
     pagarIndividual(idFuncionario) {
         const func = jogo.funcionarios.find(f => f.id === idFuncionario);
@@ -473,6 +693,7 @@ export const acoes = {
             func.diasEmGreve = 0;
             func.pago = true;
             mostrarAviso("Pago!", `Dívida de ${totalDevido} ouros quitada. ${func.nome} voltou ao trabalho.`, 'sucesso');
+            salvarNaNuvem();
         } else {
             mostrarAviso("Sem Ouro", `Você precisa de ${totalDevido} ouros para quitar ${func.diasEmGreve} dias de atraso.`);
         }
@@ -578,6 +799,7 @@ export const acoes = {
 
                 if (aoContratar) aoContratar(novo);
                 else mostrarAviso("Contratado!", `Você contratou um ${novo.profissao} Tier ${novo.tier}!`, 'sucesso');
+                salvarNaNuvem();
             };
 
             execucao();
@@ -647,6 +869,8 @@ export const acoes = {
             });
             jogo.funcionarios.push(novo);
             if (onSucessoFusao) onSucessoFusao(novo, tierBase);
+            console.log("Fusão realizada. Salvando..."); 
+            salvarNaNuvem();
         };
 
         if (onConfirmacaoVisual) {
@@ -682,6 +906,8 @@ export const acoes = {
         // 3. Código Original de Demissão (só acontece se passar pelas travas acima)
         const idx = jogo.funcionarios.findIndex(x => x.id === id);
         if (idx !== -1) jogo.funcionarios.splice(idx, 1);
+        salvarNaNuvem(); // <--- ADICIONADO AQUI
+        mostrarAviso("Demitido", "Funcionário removido com sucesso.", "sucesso");
     },
 
     fabricarItem(item, qtd = 1) {
@@ -730,7 +956,8 @@ export const acoes = {
                 tempoTotal: tempoFinal,
                 chanceFalha: Math.max(0, 0.0 * (1 - redutorFalha)) // Base 0% falha por enquanto
             });
-            
+            console.log("Item adicionado à fila. Salvando...");
+            salvarNaNuvem();
         } else mostrarAviso("Sem Recursos", "Faltam recursos.");
     },
     cancelarCraft(index) {
@@ -758,6 +985,7 @@ export const acoes = {
                 // Remove o item da lista
                 jogo.craftando.splice(index, 1);
                 mostrarAviso("Cancelado", `Finalizados: ${feitos} | Cancelados: ${pendentes}`, 'aviso');
+                salvarNaNuvem();
             }
         });
     },
@@ -802,6 +1030,7 @@ export const acoes = {
                 
                 // Opcional: Feedback de sucesso
                 mostrarAviso("Acelerado!", "Produção concluída instantaneamente.", "sucesso");
+                salvarNaNuvem();
             });
         } else {
             // --- AQUI ESTÁ O AVISO QUE FALTAVA ---
@@ -819,6 +1048,7 @@ export const acoes = {
         if (qtd === -1 && jogo[p] > 0) {
             if (prof === 'minerador' && (jogo.mineradores - mineradoresOcupados.value) <= 0) return mostrarAviso("Erro", "Mineradores trabalhando.");
             jogo[p]--; jogo.desempregados++;
+            salvarNaNuvem();
         }
     },
     // Nova função de alocação
@@ -855,14 +1085,16 @@ export const acoes = {
 
         // Atribui ao novo slot
         jogo.alocacaoMina[minerioId][slotIndex] = funcionarioId;
+        salvarNaNuvem();
     },
     
     desalocarMinerador(minerioId, slotIndex) {
         jogo.alocacaoMina[minerioId][slotIndex] = null;
+        salvarNaNuvem();
     },
     pesquisar(tech) { if (!tech.feito && jogo.ciencia >= tech.custo.ciencia) { jogo.ciencia -= tech.custo.ciencia; tech.feito = true; } },
     // HACKS PARA TESTES
-    hack() { jogo.ouro += 100000000; jogo.madeira += 100000; jogo.comida += 100000; jogo.couro += 1000; Object.keys(jogo.minerios).forEach(k => jogo.minerios[k] += 1000); jogo.poMistico = (jogo.poMistico || 0) + 1000; 
+    hack() { jogo.ouro += 100000000; jogo.madeira += 100000; jogo.carne += 100000; jogo.couro += 1000; Object.keys(jogo.minerios).forEach(k => jogo.minerios[k] += 1000); jogo.poMistico = (jogo.poMistico || 0) + 1000; 
     jogo.pedra_up_comum = (jogo.pedra_up_comum || 0) + 50;
     jogo.pedra_up_rara = (jogo.pedra_up_rara || 0) + 50;
     jogo.pedra_up_mitica = (jogo.pedra_up_mitica || 0) + 50;
@@ -882,11 +1114,30 @@ export const acoes = {
     jogo.itens.salamandra = (jogo.itens.salamandra || 0) + 5;
     jogo.itens.fire_serpe = (jogo.itens.fire_serpe || 0) + 5;
     jogo.itens.snow_fox = (jogo.itens.snow_fox || 0) + 5;
-    // remedios
-    jogo.itens.bandagem = (jogo.itens.bandagem || 0) +5;
-    jogo.itens.pocao_vida_p = (jogo.itens.pocao_vida_p || 0) +5;
-    jogo.itens.ervas_medicinais = (jogo.itens.ervas_medicinais || 0) +5;
-    jogo.itens.talisma_cura = (jogo.itens.talisma_cura || 0) +5;
+    // --- TODOS OS MEDICAMENTOS (TIER 1 a 4) ---
+        const itensMedicos = [
+            // Bandagens
+            'bandagem_comum', 'bandagem_seda', 'bandagem_magica', 'bandagem_aetherium',
+            // Poções
+            'pocao_vida_p', 'pocao_vida_m', 'pocao_vida_g', 'elixir_vida',
+            // Ervas
+            'ervas_comuns', 'cataplasma_musgo', 'raiz_mandragora', 'flor_luz',
+            // Talas
+            'tala_madeira', 'tala_ferro', 'tala_mithril', 'tala_runica',
+            // Pomadas
+            'pomada_base', 'pomada_aloe', 'unguento_gelo', 'balsamo_fenix',
+            // Antídotos
+            'antidoto_p', 'soro_ofidico', 'panaceia', 'lagrima_unicornio',
+            // Tônicos
+            'tonico_revigorante', 'bebida_energetica', 'extrato_adrenalina', 'nectar_deuses',
+            // Talismãs
+            'talisma_cura', 'amuleto_prata', 'totem_ouro', 'reliquia_sagrada'
+        ];
+
+        // Adiciona 50 de cada
+        itensMedicos.forEach(id => {
+            jogo.itens[id] = (jogo.itens[id] || 0) + 50;
+        });
 
 },
     
@@ -914,7 +1165,7 @@ export const acoes = {
     // HACK DE RECURSOS
     resetarRecursos() {
         pedirConfirmacao("Lixeira", "Zerar tudo?", () => {
-            ['madeira', 'comida', 'ouro', 'ciencia', 'couro'].forEach(k => jogo[k] = 0);
+            ['madeira', 'carne', 'ouro', 'ciencia', 'couro'].forEach(k => jogo[k] = 0);
             Object.keys(jogo.minerios).forEach(k => jogo.minerios[k] = 0);
         });
     }
@@ -940,152 +1191,204 @@ function processarPagamentoSalarios() {
         mostrarAviso("Demissões!", `${demitidos.length} funcionários se demitiram por falta de pagamento (5 dias de greve).`, "aviso");
     }
 }
+// --- FUNÇÃO DE ACIDENTES (ONLINE) ---
+const verificarAcidentesDeTrabalho = () => {
+    const agora = Date.now();
 
+    // 1. Checagem de Tempo (O Porteiro)
+    if (agora < jogo.sistemaAcidentes.proximaChecagem) return;
+
+    // 2. Reagendar Próximo Sorteio (Entre 40 e 60 minutos)
+    const tempoMinimo = 40; 
+    const tempoMaximo = 60;
+    const minutosProximo = Math.floor(Math.random() * (tempoMaximo - tempoMinimo + 1) + tempoMinimo);
+    jogo.sistemaAcidentes.proximaChecagem = agora + (minutosProximo * 60 * 1000);
+    console.log(`📅 Próxima checagem agendada para daqui a ${minutosProximo} minutos.`);    
+    // 3. Filtra Candidatos (Define quem pode sofrer acidente)
+    let candidatos = jogo.funcionarios.filter(f => {
+        const prof = (f.profissao || '').toLowerCase();
+        // profissoesDeRisco vem do import lá em cima
+        return profissoesDeRisco.includes(prof) &&
+               f.status !== 'doente' && 
+               f.diasEmGreve === 0;
+    });
+
+    const totalEligiveis = candidatos.length;
+
+    // 4. Busca a Regra de Chance baseada na População (Define regraAtual)
+    const regraAtual = REGRAS_DE_ESCALA.find(r => totalEligiveis >= r.min && totalEligiveis <= r.max);
+    
+    // Se não tiver regra (vila muito pequena) ou chance for 0
+    if (!regraAtual || regraAtual.chance <= 0) {
+        console.log(`🛡️ Vila segura (${totalEligiveis} funcionários). Chance de acidente: 0%`);
+        return;
+    }
+    // ---------------------------------------------------------------------
+
+    console.log(`🎲 Rolando dado para ${totalEligiveis} funcionários. Chance Atual: ${(regraAtual.chance * 100)}%`);
+
+    // 5. Rolar o Dado do Azar
+    const dadoSorte = Math.random();
+    
+    // AGORA SIM podemos usar regraAtual, pois ela foi definida acima
+    if (dadoSorte > regraAtual.chance) {
+        console.log("🍀 Ufa! O acidente não aconteceu desta vez.");
+        return; 
+    }
+
+    // 6. Aplica o Acidente (SEMPRE 1 VÍTIMA APENAS)
+    if (candidatos.length > 0) {
+        const indexSorteado = Math.floor(Math.random() * candidatos.length);
+        const vitima = candidatos[indexSorteado];
+
+        // Escolhe a Doença
+        const listaFerimentosIds = Object.keys(tiposFerimentos);
+        let ferimentosPossiveis = listaFerimentosIds.filter(id => {
+            const ferimento = tiposFerimentos[id];
+            return (ferimento.desc + " " + ferimento.nome).toLowerCase().includes(vitima.profissao.toLowerCase()) || 
+                   ferimento.nivelSeveridade === 1;
+        });
+
+        if (ferimentosPossiveis.length === 0) ferimentosPossiveis = ['corte_rebarba'];
+        const idFerimento = ferimentosPossiveis[Math.floor(Math.random() * ferimentosPossiveis.length)];
+        const dadosFerimento = tiposFerimentos[idFerimento];
+
+        // Adiciona à Fila
+        jogo.filaDeEspera.push({
+            id: Date.now(), 
+            funcionarioId: vitima.id,
+            nome: vitima.nome,
+            profissao: vitima.profissao,
+            icone: `/assets/faces/${vitima.raca}/${vitima.imagem}.png`,
+            doenca: idFerimento,
+            tempoTotal: dadosFerimento.tempoBase,
+            tempoAtual: 0,
+            qtd: 1,
+            tipo: 'acidente'
+        });
+
+        vitima.status = 'doente';
+        
+        // Log e Save
+        jogo.sistemaAcidentes.ultimoEvento = `⚠️ Acidente: ${vitima.nome} (${dadosFerimento.nome})`;
+        console.log(`🚑 ACIDENTE CONFIRMADO: ${vitima.nome} se machucou.`);
+        salvarNaNuvem();
+    }
+};
+// --- NOVO LOOP COM DELTA TIME ---
+// --- NOVO LOOP INTELIGENTE ---
 export function iniciarLoop() {
-    if (loopId) clearInterval(loopId);
-    loopId = setInterval(() => {
-        // 1. Calcula o tempo real que passou desde o último tick (Delta Time)
+    if (loopId) cancelAnimationFrame(loopId);
+    jogo.ultimaAtualizacao = Date.now();
+
+    const loop = () => {
         const agora = Date.now();
         
-        // Evita saltos gigantes se o jogo travou (limita a 1s min se for muito pequeno)
-        const deltaSegundos = (agora - jogo.ultimaAtualizacao) / 1000;
-        jogo.ultimaAtualizacao = agora;
-// Verifica se a lista existe antes de tentar ler (segurança para saves antigos)
-        // --- SISTEMA DE FILA DA BIBLIOTECA (NOVO) ---
-        // Agora processamos apenas o PRIMEIRO da fila (Slot 0)
-        // O Slot 1 fica "esperando" o 0 acabar.
+        // --- 1. A TRAVA DE SEGURANÇA (NOVO) ---
+        // Se o save da nuvem ainda não terminou de carregar, nós TRAVAMOS o jogo aqui.
+        if (!jogoIniciado) {
+            // Atualizamos o relógio para que, quando o jogo começar, 
+            // o delta seja 0 (sem saltos de tempo).
+            jogo.ultimaAtualizacao = agora; 
+            
+            // Mantém o loop rodando em "ponto morto"
+            loopId = requestAnimationFrame(loop);
+            return; // <--- PARA TUDO, não executa o resto do código abaixo
+        }
+        // ---------------------------------------
+
+        // Calcula o tempo REAL que passou
+        let deltaSegundos = (agora - jogo.ultimaAtualizacao) / 1000;
         
+        // Proteção mínima
+        if (deltaSegundos < 0) deltaSegundos = 0;
+
+        jogo.ultimaAtualizacao = agora;
+
+        // --- LÓGICA DO JOGO COMEÇA AQUI ---
+        processarLogicaEnfermaria(deltaSegundos);
+
+        // --- LÓGICA DA BIBLIOTECA ---
         if (jogo.estudos && jogo.estudos.length > 0) {
-            // --- LÓGICA DE FILA AUTOMÁTICA (COM DELAY DE 8s) ---
-            // Verifica: Se o Centro (0) está VAZIO e a Fila (1) tem ITEM
             if (!jogo.estudos[0].item && jogo.estudos[1].item) {
-                
-                // Começa a contar o tempo
                 jogo.tempoOciosidadeFila = (jogo.tempoOciosidadeFila || 0) + deltaSegundos;
-                
-                // Se passar de 8 segundos
                 if (jogo.tempoOciosidadeFila >= 8) {
-                    // Puxa a fila (O 1 vira 0, o 2 vira 1, etc)
                     jogo.estudos.shift();
-                    // Adiciona um vazio no final pra manter 4 slots
                     jogo.estudos.push({ item: null, tempoTotal: 0, tempoRestante: 0, progresso: 0 });
-                    // Reseta o timer
                     jogo.tempoOciosidadeFila = 0;
                 }
-        } else {
-            // Se o centro encheu (você colocou algo) ou a fila acabou, zera o timer
-            jogo.tempoOciosidadeFila = 0;
-        }
-        // -----------------------------------------------------
-            // Olha apenas para o primeiro da fila
+            } else {
+                jogo.tempoOciosidadeFila = 0;
+            }
+
             const slotAtual = jogo.estudos[0];
-
             if (slotAtual && slotAtual.item) {
-                // Diminui o tempo
                 slotAtual.tempoRestante -= deltaSegundos;
-
-                // Atualiza Barra de Progresso
                 slotAtual.progresso = 100 - ((slotAtual.tempoRestante / slotAtual.tempoTotal) * 100);
 
-                // --- NOVO CÓDIGO: VERIFICA SE ACABOU ---
                 if (slotAtual.tempoRestante <= 0) {
-                    
-                    // 1. Pega os dados do item (XP, Nome, etc)
                     const dadosItem = DADOS_ESTUDO[slotAtual.item];
-                    
-                    if (dadosItem) {
-                        // 2. Dá a recompensa
-                        jogo.ciencia += dadosItem.xp;
-                        // console.log("Estudo concluído!");
-                    }
-
-                    // 3. MÁGICA DA FILA: .shift()
-                    // Remove o item da posição [0]. O item da posição [1] vira [0] automaticamente!
-                    jogo.estudos.shift(); 
-
-                    // 4. Adiciona um slot vazio no final para manter sempre 4 vagas
+                    if (dadosItem) jogo.ciencia += dadosItem.xp;
+                    jogo.estudos.shift();
                     jogo.estudos.push({ item: null, tempoTotal: 0, tempoRestante: 0, progresso: 0 });
                 }
             }
         }
-        // -----------------------------------------------------
-        // Fim do sistema de fila da biblioteca
-        // ----------------------------------------------------
 
-        // --- PROCESSAMENTO DE CARCAÇAS (NOVO) ---
+        // --- LÓGICA DE PROCESSAMENTO (CARCAÇAS) ---
         if (jogo.processamento && jogo.processamento.length > 0) {
+            let tempoParaGastar = deltaSegundos;
             
-            // Lógica de puxar da fila (Delay de 5s se estiver vazio no centro)
-            if (!jogo.processamento[0].item && jogo.processamento[1].item) {
-                // Usa uma variável temporária para delay ou puxa direto. 
-                // Para simplificar, vamos puxar direto por enquanto:
-                jogo.processamento.shift();
-                jogo.processamento.push({ item: null, tempoTotal: 0, tempoRestante: 0, progresso: 0 });
-            }
+            // Limite de segurança: Máximo 24h
+            if (tempoParaGastar > 86400) tempoParaGastar = 86400;
 
-            const slotCarne = jogo.processamento[0];
-            
-            // Se tem carcaça sendo processada
-            if (slotCarne && slotCarne.item) {
-                
-                // Calcula velocidade baseada no funcionário alocado
-                let velocidade = 1;
-                // PROCURA AUTOMÁTICA (Igual à tela): Pega o primeiro esfolador disponível
-                const func = jogo.funcionarios.find(f => f.profissao === 'esfolador' && f.diasEmGreve === 0);
-
-                if (func) {
-                    // Aplica o bônus simples
-                    velocidade += func.bonus;
-                    
-                    // (Opcional) Se quiser aplicar o buff racial do prefeito aqui também, igual na tela:
-                    const pctBuff = obterBuffRaca(func); 
-                    const multiplicadorRaca = 1 + (pctBuff / 100);
-                    // Ajuste a fórmula de velocidade conforme seu balanceamento desejado
-                    // Exemplo: velocidade = velocidade * multiplicadorRaca;
-                }
-                // Aplica a velocidade ao tempo restante
-                slotCarne.tempoRestante -= deltaSegundos;
-                slotCarne.progresso = 100 - ((slotCarne.tempoRestante / slotCarne.tempoTotal) * 100);
-
-                // Terminou o processamento?
-                if (slotCarne.tempoRestante <= 0) {
-                    const receita = tabelaCarcacas.find(c => c.id === slotCarne.item);
-                    if (receita) {
-                        // ENTREGAR RECOMPENSAS
-                        jogo.comida += (receita.recursos.carne || 0);
-                        jogo.couro = Math.min(jogo.couro + (receita.recursos.couro || 0), limites.recursos);
-                        // console.log(`Processado: +${receita.carne} carne, +${receita.couro} couro`);
-                    }
-                    
-                    // Remove item atual e puxa a fila
+            while (tempoParaGastar > 0) {
+                if (!jogo.processamento[0].item && jogo.processamento[1].item) {
                     jogo.processamento.shift();
                     jogo.processamento.push({ item: null, tempoTotal: 0, tempoRestante: 0, progresso: 0 });
                 }
+
+                const slotCarne = jogo.processamento[0];
+                if (!slotCarne || !slotCarne.item) break; 
+
+                let velocidade = 1;
+                const func = jogo.funcionarios.find(f => f.profissao === 'esfolador' && f.diasEmGreve === 0);
+                if (func) velocidade += func.bonus;
+                if (velocidade < 0.1) velocidade = 0.1;
+
+                const tempoRealNecessario = slotCarne.tempoRestante / velocidade;
+
+                if (tempoParaGastar >= tempoRealNecessario) {
+                    tempoParaGastar -= tempoRealNecessario;
+                    
+                    const receita = tabelaCarcacas.find(c => c.id === slotCarne.item);
+                    if (receita) {
+                        jogo.carne += (receita.recursos.carne || 0);
+                        jogo.couro = Math.min(jogo.couro + (receita.recursos.couro || 0), limites.recursos);
+                    }
+                    
+                    jogo.processamento.shift();
+                    jogo.processamento.push({ item: null, tempoTotal: 0, tempoRestante: 0, progresso: 0 });
+                } else {
+                    slotCarne.tempoRestante -= (tempoParaGastar * velocidade);
+                    slotCarne.progresso = 100 - ((slotCarne.tempoRestante / slotCarne.tempoTotal) * 100);
+                    tempoParaGastar = 0; 
+                }
             }
         }
 
-        // Limites gerais
-
-        const lim = limites.recursos;
-        
-        // Verifica se tem a tecnologia de picareta (opcional, se ainda não tiver a tech, assume 1)
-        const techPicareta = jogo.listaTechs.find(t => t.id === 'picareta_diamante');
+        // --- MINERAÇÃO ---
+        const techPicareta = jogo.listaTechs ? jogo.listaTechs.find(t => t.id === 'picareta_diamante') : null;
         const multiplicadorTech = (techPicareta && techPicareta.feito) ? 2 : 1;
 
-        // --- PROCESSAR MINERAÇÃO ---
         tabelaMinerais.forEach(m => {
             const prodPorMinuto = calcularProducaoPorMinuto(m.id);
-            
             if (prodPorMinuto > 0) {
-                // Aplica o multiplicador da Tech aqui se desejar, ou deixe no cálculo base
                 const prodTotalMinuto = prodPorMinuto * multiplicadorTech;
-                
                 const prodPorSegundo = prodTotalMinuto / 60;
-                const ganho = prodPorSegundo * deltaSegundos; // Agora deltaSegundos existe!
+                const ganho = prodPorSegundo * deltaSegundos; 
                 
-                // Usa o banco para acumular frações
                 jogo.bancoMinerios[m.id] = (jogo.bancoMinerios[m.id] || 0) + ganho;
-                
                 if (jogo.bancoMinerios[m.id] >= 1) {
                     const inteiro = Math.floor(jogo.bancoMinerios[m.id]);
                     jogo.minerios[m.id] = Math.min((jogo.minerios[m.id] || 0) + inteiro, limites.recursos);
@@ -1094,82 +1397,474 @@ export function iniciarLoop() {
             }
         });
 
-        // --- TIMERS DE CONSTRUÇÃO E CRAFT ---
+        // --- TIMERS DIVERSOS ---
         if (jogo.construindo.tipo) { 
-            jogo.construindo.tempoRestante -= deltaSegundos; // Usa delta para precisão
+            jogo.construindo.tempoRestante -= deltaSegundos;
             if (jogo.construindo.tempoRestante <= 0) finalizarConstrucao(); 
         }
-        // Percorre a lista de trás para frente para poder remover itens sem bugar o índice
         for (let i = jogo.craftando.length - 1; i >= 0; i--) {
             const slot = jogo.craftando[i];
             slot.tempoRestante -= deltaSegundos;
-            if (slot.tempoRestante <= 0) {
-                finalizarCraft(i);
-            }
+            if (slot.tempoRestante <= 0) finalizarCraft(i);
         }
-        
 
-        // --- RECURSOS BÁSICOS (COMIDA/MADEIRA) ---
-        // Mantido simples (por tick) ou pode usar deltaSegundos também para precisão
-        const cons = populacaoTotal.value;
-        //jogo.comida = Math.max(0, jogo.comida - (cons * deltaSegundos)); // Consome comida proporcional ao tempo passado
-        
+        // --- PRODUÇÃO MADEIRA ---
         const prodMadeira = calcularProducaoTotal('lenhador');
         if (prodMadeira > 0) {
-            const techMachado = jogo.listaTechs.find(t => t.id === 'machado_ferro');
+            const techMachado = jogo.listaTechs ? jogo.listaTechs.find(t => t.id === 'machado_ferro') : null;
             const bMad = (techMachado && techMachado.feito) ? 1.5 : 1;
-            jogo.madeira = Math.min(jogo.madeira + (prodMadeira * bMad * deltaSegundos), lim);
+            jogo.madeira = Math.min(jogo.madeira + (prodMadeira * bMad * deltaSegundos), limites.recursos);
         }
 
-    }, 1000); // Roda a cada segundo
+        loopId = requestAnimationFrame(loop);
+        verificarAcidentesDeTrabalho();
+        
+    };
+
+    loopId = requestAnimationFrame(loop);
 }
-
-export function iniciarSave() {
-    const s = localStorage.getItem('save-v15-refactor');
-    if (s) { 
-        try { 
-            const dadosSalvos = JSON.parse(s);
-            Object.assign(jogo, dadosSalvos);
-            if (jogo.craftando && !Array.isArray(jogo.craftando)) {
-                console.warn("Detectado save antigo da Ferraria. Resetando fila para evitar crash.");
-                jogo.craftando = []; // Transforma em lista vazia à força
-            }
-            if (!jogo.estudos) {
-                 jogo.estudos = [];
-            }
-            if (jogo.estudos.length < 4) {
-                console.log("Corrigindo save da Biblioteca: Adicionando slots de fila.");
-                while (jogo.estudos.length < 4) {
-                    jogo.estudos.push({ item: null, tempoTotal: 0, tempoRestante: 0, progresso: 0 });
-                }
-            }
-            // --- CORREÇÃO: REPARO DE SLOTS INEXISTENTES ---
-            // Garante que se você adicionou minérios novos no código, 
-            // eles sejam criados no save antigo.
-            tabelaMinerais.forEach(m => {
-                if (!jogo.alocacaoMina[m.id]) {
-                    jogo.alocacaoMina[m.id] = [null, null];
-                    jogo.bancoMinerios[m.id] = 0; // Garante banco também
-                    // Inicializa contadores se não existirem
-                    if (jogo.minerios[m.id] === undefined) jogo.minerios[m.id] = 0;
-                }
-            });
-
-            // Processamento Offline
-            if (Date.now() - jogo.ultimaAtualizacao > 5000) {
-                processarOffline((Date.now() - jogo.ultimaAtualizacao) / 1000);
-            }
-        } catch (e) { 
-            console.error("Erro ao carregar save:", e);
-        } 
-    }
 
     // VERIFICAÇÃO AUTOMÁTICA AO CARREGAR O JOGO
     verificarNovoDia();
 
-    setInterval(() => { 
-        jogo.ultimaAtualizacao = Date.now(); 
-        localStorage.setItem('save-v15-refactor', JSON.stringify(jogo)); 
-    }, 5000);
-}
-export function resetar() { if (confirm("Resetar?")) { localStorage.removeItem('save-v15-refactor'); location.reload(); } }
+    // Variável para impedir que o loop rode antes de carregar o save
+    let jogoIniciado = false;   
+    // Variável que vai guardar quem está jogando (começa vazia)
+    let idUsuarioAtual = null;
+
+    // Função que o App.vue vai chamar quando alguém fizer login
+    export async function definirIdUsuario(novoId) {
+        idUsuarioAtual = novoId;
+        console.log("Usuário definido no sistema:", idUsuarioAtual);
+        // Assim que define o usuário, já tenta carregar o save dele
+        carregarDaNuvem();
+    } 
+    let timerSalvar = null;
+
+    export async function salvarNaNuvem(modoLento = false) {
+        if (!idUsuarioAtual) return;
+        if (!jogoIniciado) return;
+
+        // Função interna que faz o trabalho sujo
+        const executarAgora = async () => {
+            const { error } = await supabase
+                .from('saves')
+                .upsert({ 
+                    id: idUsuarioAtual, 
+                    dados_jogo: jogo 
+                });
+            if (error) console.error('Erro save:', error);
+            else console.log('✅ Salvo na nuvem!');
+        };
+
+        // CENÁRIO 1: Ação do Jogador (Recrutar, Demitir, Pagar) - SALVA AGORA!
+        if (!modoLento) {
+            if (timerSalvar) clearTimeout(timerSalvar); // Cancela qualquer timer pendente
+            timerSalvar = null;
+            await executarAgora(); // Executa imediatamente
+            return;
+        }
+
+        // CENÁRIO 2: Autosave (Rotina de fundo) - PODE ESPERAR (Debounce)
+        if (timerSalvar) clearTimeout(timerSalvar);
+        timerSalvar = setTimeout(() => {
+            executarAgora();
+            timerSalvar = null;
+        }, 2000); // Espera 2s para não sobrecarregar
+    }
+    let carregandoDados = false;
+
+    export async function carregarDaNuvem() {
+        if (carregandoDados) return;
+        if (!idUsuarioAtual) return;
+        carregandoDados = true;
+
+        console.log("Buscando save na nuvem para:", idUsuarioAtual);
+
+        // 1. Buscamos o save E TAMBÉM a hora atual do servidor
+        // O .rpc('ler_hora_servidor') chama aquela função que criamos no SQL
+        const { data: horaServidor, error: erroHora } = await supabase.rpc('ler_hora_servidor');
+        
+        const { data, error } = await supabase
+            .from('saves')
+            .select('dados_jogo, data_real_save') // Trazemos a data real do banco
+            .eq('id', idUsuarioAtual)
+            .maybeSingle()
+
+        if (error || erroHora) {
+            console.log("Erro ao buscar dados ou hora:", error, erroHora);
+            carregandoDados = false; 
+        return;
+    }
+
+        if (data && data.dados_jogo) {
+            // Carrega o jogo
+            Object.assign(jogo, data.dados_jogo);            
+            // GARANTIA: Se por acaso 'leitos' não existir no save, cria do zero
+            if (!jogo.leitos) jogo.leitos = [];
+            // Força a próxima checagem para AGORA, ignorando o que estava salvo
+            /*if (jogo.sistemaAcidentes) {
+                jogo.sistemaAcidentes.proximaChecagem = Date.now() + 5000; // 5 segundos após carregar
+                console.log("🛠️ Timer de acidentes resetado manualmente para testes.");
+            }*/
+
+            // 1. Se faltar cama, constrói
+            while (jogo.leitos.length < TOTAL_LEITOS) {
+                jogo.leitos.push({ id: jogo.leitos.length, ocupado: null });
+            }
+            // 2. Se sobrar cama, demole
+            while (jogo.leitos.length > TOTAL_LEITOS) {
+                jogo.leitos.pop();
+            }
+            if (!jogo.sistemaAcidentes) {
+                jogo.sistemaAcidentes = {
+                    // Removemos o "+ (5 * 1000)". Agora o sistema inicia pronto para rodar.
+                    // A proteção de 'Vila Pequena' cuidará do resto.
+                    proximaChecagem: Date.now(), 
+                    ultimoEvento: "Sistema iniciado pós-load"
+                };
+            }
+            
+            console.log("Save carregado!");
+
+            // --- CORREÇÃO DE BUG DA FILA (INTELIGENTE - NÃO APAGA ITENS) ---
+            if (!Array.isArray(jogo.processamento)) {
+                 // Se nem for lista, cria do zero
+                 jogo.processamento = Array.from({ length: 8 }, () => ({ item: null, tempoTotal: 0, tempoRestante: 0, progresso: 0 }));
+            } else {
+                // Se for lista, mas o tamanho estiver errado (ex: 7 ou 15)
+                if (jogo.processamento.length !== 8) {
+                    console.log(`[FIX] Ajustando fila de ${jogo.processamento.length} para 8 slots (Mantendo itens)...`);
+                    
+                    // 1. Resgata os itens que você já tinha colocado (ignora slots vazios)
+                    const itensSalvos = jogo.processamento.filter(slot => slot && slot.item);
+                    
+                    // 2. Cria uma fila nova zerada e perfeita
+                    const novaFila = Array.from({ length: 8 }, () => ({ item: null, tempoTotal: 0, tempoRestante: 0, progresso: 0 }));
+                    
+                    // 3. Coloca os itens de volta nos primeiros slots
+                    itensSalvos.forEach((dado, i) => {
+                        if (i < 8) novaFila[i] = dado;
+                    });
+                    
+                    jogo.processamento = novaFila;
+                }
+            }
+            // Se houver um item na fila que NÃO existe na tabela oficial, apaga ele.
+            jogo.processamento.forEach(slot => {
+                if (slot.item) {
+                    // Tenta achar esse item na lista de carcaças
+                    const itemExiste = tabelaCarcacas.find(c => c.id === slot.item);
+                    
+                    // Se não achou (ou seja, é um ID velho ou bugado), limpa o slot
+                    if (!itemExiste) {
+                        console.log(`[FAXINA] Removendo item inválido da fila: ${slot.item}`);
+                        slot.item = null;
+                        slot.progresso = 0;
+                        slot.tempoTotal = 0;
+                        slot.tempoRestante = 0;
+                    }
+                }
+            });
+            // -------------------------------------------------
+
+            // --- CÁLCULO DE TEMPO OFFLINE (V3 - SEM PENALIDADE) ---
+            if (data.data_real_save && horaServidor) {
+                const ultimoSaveReal = new Date(data.data_real_save).getTime();
+                const agoraReal = new Date(horaServidor).getTime();
+                const diferencaMs = agoraReal - ultimoSaveReal;
+
+                if (diferencaMs > 0) {
+                    // 1. Usamos 100% do tempo (SEM PENALIDADE DE 80%)
+                    let segundosDisponiveis = diferencaMs / 1000; // COPIA OS SEGUNDOS OFFLINE PRO DESTRINCHAMENTO
+                    let tempoParaFerraria = segundosDisponiveis; // COPIA OS SEGUNDOS OFFLINE PRA FERRARIA
+                    let tempoParaMina = segundosDisponiveis; // COPIA OS SEGUNDOS OFFLINE PRA MINA
+                    
+                    console.log(`%c[OFFLINE] Tempo Total: ${segundosDisponiveis.toFixed(1)}s`, "color: gold; font-weight: bold; font-size: 12px;");
+                    
+                    let itensProcessados = 0;
+                    let recursosGanhos = {}; 
+
+                    // Loop WHILE: Processa um por um, na ordem certa
+                    while (segundosDisponiveis > 0 && jogo.processamento.length > 0) {
+                        
+                        let slotAtual = jogo.processamento[0]; // Pega o primeiro da fila
+                        
+                        // Se for slot vazio/bugado, remove e passa pro próximo
+                        if (!slotAtual.item) {
+                            jogo.processamento.shift();
+                            continue;
+                        }
+
+                        // Busca dados oficiais para garantir o tempo correto
+                        const dadosItem = tabelaCarcacas.find(c => c.id === slotAtual.item);
+                        // Se o item já estava iniciado, usa o tempo salvo. Se não, usa o do banco de dados.
+                        let tempoTotalItem = (slotAtual.tempoTotal > 0) ? slotAtual.tempoTotal : (dadosItem ? dadosItem.tempo : 60);
+                        
+                        // Aplica bônus de funcionário se houver (Se não tiver, velocidade é 1)
+                        let velocidade = 1;
+                        const esfolador = jogo.funcionarios.find(f => f.profissao === 'esfolador' && f.diasEmGreve === 0);
+                        if (esfolador) velocidade += esfolador.bonus;
+
+                        // Calcula quanto tempo REAL leva para terminar este item
+                        let tempoParaTerminar = (tempoTotalItem - slotAtual.progresso) / velocidade;
+
+                        if (segundosDisponiveis >= tempoParaTerminar) {
+                            // -> FINALIZOU O ITEM
+                            segundosDisponiveis -= tempoParaTerminar;
+                            console.log(`[OFFLINE] ✅ ${dadosItem ? dadosItem.nome : slotAtual.item} finalizado em ${tempoParaTerminar.toFixed(1)}s`);
+
+                            // Entrega recursos
+                            if (dadosItem && dadosItem.recursos) {
+                                for (const [chave, qtd] of Object.entries(dadosItem.recursos)) {
+                                    
+                                    // CORREÇÃO: Verifica se é um recurso básico (carne, couro, madeira)
+                                    // Se a variável existe direto no 'jogo', soma lá.
+                                    if (jogo[chave] !== undefined) {
+                                        jogo[chave] += qtd;
+                                    } 
+                                    // Se não, joga no inventário de itens
+                                    else {
+                                        jogo.itens[chave] = (jogo.itens[chave] || 0) + qtd;
+                                    }
+
+                                    recursosGanhos[chave] = (recursosGanhos[chave] || 0) + qtd;
+                                }
+                            }
+
+                            // Remove da fila (o próximo anda)
+                            jogo.processamento.shift();
+                            itensProcessados++;
+
+                        } else {
+                            // -> NÃO DEU TEMPO, SÓ AVANÇOU
+                            slotAtual.progresso += (segundosDisponiveis * velocidade);
+                            slotAtual.tempoRestante = tempoTotalItem - slotAtual.progresso;
+                            console.log(`[OFFLINE] ⏳ ${dadosItem ? dadosItem.nome : slotAtual.item} avançou ${(segundosDisponiveis * velocidade).toFixed(1)}s`);
+                            segundosDisponiveis = 0; // Acabou o tempo
+                        }
+                    }
+
+                    console.log(`[OFFLINE] Resumo: ${itensProcessados} itens completos.`);
+                    console.log("[OFFLINE] Ganhos:", recursosGanhos);
+                    
+                    // --- INÍCIO: FERRARIA OFFLINE ---
+                    if (tempoParaFerraria > 0 && jogo.craftando && jogo.craftando.length > 0) {
+                        console.log(`[OFFLINE] 🔨 Processando Ferraria... Tempo Disp: ${tempoParaFerraria.toFixed(1)}s`);
+                        
+                        for (let i = 0; i < jogo.craftando.length; i++) {
+                            let item = jogo.craftando[i];
+                            
+                            // Se o tempo acabou, para
+                            if (tempoParaFerraria <= 0) break;
+                            
+                            if (item.tempoRestante > 0) {
+                                if (tempoParaFerraria >= item.tempoRestante) {
+                                    // CASO 1: Termina o item
+                                    tempoParaFerraria -= item.tempoRestante;
+                                    item.tempoRestante = 0; 
+                                    console.log(`> Item PRONTO: ${item.item}`);
+                                } else {
+                                    // CASO 2: Só adianta
+                                    item.tempoRestante -= tempoParaFerraria;
+                                    console.log(`> Adiantou ${tempoParaFerraria.toFixed(1)}s no item ${item.item}`);
+                                    tempoParaFerraria = 0;
+                                }
+                            }
+                        }
+                    }
+                    // --- FIM DA FERRARIA OFFLINE ---
+                    // --- INÍCIO: MINA OFFLINE ---
+                    if (tempoParaMina > 0) {
+                        console.log(`[OFFLINE] ⛏️ Processando Mina... Tempo: ${tempoParaMina.toFixed(1)}s`);
+                        
+                        const techPicareta = jogo.listaTechs ? jogo.listaTechs.find(t => t.id === 'picareta_diamante') : null;
+                        const multiplicadorTech = (techPicareta && techPicareta.feito) ? 2 : 1;
+
+                        // Lista para guardar o resumo do que ganhou
+                        let relatorioMineracao = [];
+
+                        tabelaMinerais.forEach(m => {
+                            const prodPorMinuto = calcularProducaoPorMinuto(m.id);
+                            
+                            if (prodPorMinuto > 0) {
+                                const prodTotalMinuto = prodPorMinuto * multiplicadorTech;
+                                const prodPorSegundo = prodTotalMinuto / 60;
+                                const ganho = prodPorSegundo * tempoParaMina;
+                                
+                                jogo.bancoMinerios[m.id] = (jogo.bancoMinerios[m.id] || 0) + ganho;
+                                
+                                if (jogo.bancoMinerios[m.id] >= 1) {
+                                    const inteiro = Math.floor(jogo.bancoMinerios[m.id]);
+                                    jogo.minerios[m.id] = Math.min((jogo.minerios[m.id] || 0) + inteiro, limites.recursos);
+                                    jogo.bancoMinerios[m.id] -= inteiro;
+
+                                    // Adiciona ao relatório (Ex: "10 Pedra")
+                                    relatorioMineracao.push(`${inteiro} ${m.nome}`);
+                                }
+                            }
+                        });
+
+                        // Se minerou alguma coisa, mostra no console
+                        if (relatorioMineracao.length > 0) {
+                            const textoFinal = relatorioMineracao.join(', ');
+                            console.log(`%c[OFFLINE] ⛏️ Mineração Concluída: +${textoFinal}`, "color: #e67e22; font-weight: bold;");
+                            
+                            // Opcional: Se quiser mostrar aviso na tela pro jogador também, descomente a linha abaixo:
+                            // mostrarAviso("Mineração Offline", `Enquanto você dormia, seus mineradores extraíram: ${textoFinal}`);
+                        }
+                    }
+                    // --- FIM MINA OFFLINE ---
+
+                    // --- INÍCIO: ACIDENTES (OFFLINE) ---
+                    console.log("[OFFLINE] 🏥 Verificando acidentes retroativos...");
+                    
+                    const agora = Date.now();
+                    let tempoSimulado = jogo.sistemaAcidentes.proximaChecagem;
+                    let acidentesOcorridos = 0;
+
+                    // 1. Prepara a lista base de risco (apenas para contagem inicial e definição do limite)
+                    // Usamos a lista global profissoesDeRisco importada de funcionarios.js
+                    const totalFuncionariosRisco = jogo.funcionarios.filter(f => {
+                         const prof = (f.profissao || '').toLowerCase();
+                         return profissoesDeRisco.includes(prof);
+                    }).length;
+
+                    // 2. Busca a regra inicial para definir o LIMITE OFFLINE
+                    const regraInicial = REGRAS_DE_ESCALA.find(r => totalFuncionariosRisco >= r.min && totalFuncionariosRisco <= r.max);
+                    
+                    // Limite máximo de pessoas que podem estar doentes ao logar (Baseado na regra)
+                    const LIMITE_DINAMICO = regraInicial ? regraInicial.limiteOffline : 0;
+                    
+                    // Chance base (usada se não recalcularmos a cada loop)
+                    const chanceBase = regraInicial ? regraInicial.chance : 0;
+
+                    console.log(`[OFFLINE] Risco: ${totalFuncionariosRisco} funcs. Chance: ${(chanceBase*100)}%. Limite Offline: ${LIMITE_DINAMICO}`);
+
+                    // Enquanto o tempo simulado for menor que AGORA
+                    while (tempoSimulado < agora) {
+                        
+                        // A. Sorteia se houve evento (Chance da regra)
+                        const dado = Math.random();
+
+                        // Verifica chance E se ainda não atingiu o teto de feridos offline
+                        if (dado <= chanceBase && acidentesOcorridos < LIMITE_DINAMICO) {
+                            
+                            // B. Filtra quem está SAUDÁVEL agora
+                            const candidatos = jogo.funcionarios.filter(f => {
+                                const prof = (f.profissao || '').toLowerCase();
+                                return profissoesDeRisco.includes(prof) && f.status !== 'doente' && f.diasEmGreve === 0;
+                            });
+
+                            // Se tem alguém saudável para sofrer o acidente
+                            if (candidatos.length > 0) {
+                                // C. Sorteia 1 Vítima (Agora é sempre 1 por evento)
+                                const indexSorteado = Math.floor(Math.random() * candidatos.length);
+                                const vitima = candidatos[indexSorteado];
+
+                                // Escolhe doença
+                                const listaFerimentosIds = Object.keys(tiposFerimentos);
+                                let ferimentosPossiveis = listaFerimentosIds.filter(id => {
+                                    const ferimento = tiposFerimentos[id];
+                                    return (ferimento.desc + " " + ferimento.nome).toLowerCase().includes(vitima.profissao.toLowerCase()) || ferimento.nivelSeveridade === 1;
+                                });
+                                if (ferimentosPossiveis.length === 0) ferimentosPossiveis = ['corte_rebarba'];
+                                
+                                const idFerimento = ferimentosPossiveis[Math.floor(Math.random() * ferimentosPossiveis.length)];
+                                const dadosFerimento = tiposFerimentos[idFerimento];
+
+                                // Aplica
+                                jogo.filaDeEspera.push({
+                                    id: Date.now() + Math.random(), // Random extra pra evitar ID duplicado no loop rápido
+                                    funcionarioId: vitima.id,
+                                    nome: vitima.nome,
+                                    profissao: vitima.profissao,
+                                    icone: `/assets/faces/${vitima.raca}/${vitima.imagem}.png`,
+                                    doenca: idFerimento,
+                                    tempoTotal: dadosFerimento.tempoBase,
+                                    tempoAtual: 0,
+                                    qtd: 1,
+                                    tipo: 'acidente_offline'
+                                });
+
+                                vitima.status = 'doente';
+                                acidentesOcorridos++;
+                                console.log(`[OFFLINE] ⚠️ Acidente: ${vitima.nome} (${dadosFerimento.nome})`);
+                            }
+                        }
+
+                        // D. Avança o relógio (40 a 60 min)
+                        const saltoTempo = Math.floor(Math.random() * (60 - 40 + 1) + 40) * 60 * 1000;
+                        tempoSimulado += saltoTempo;
+                    }
+
+                    // Atualiza o relógio oficial
+                    jogo.sistemaAcidentes.proximaChecagem = tempoSimulado;
+
+                    if (acidentesOcorridos > 0) {
+                        mostrarAviso("Relatório de Segurança", `Enquanto você estava fora, ocorreram ${acidentesOcorridos} acidentes de trabalho.`, "aviso");
+                    }
+                    // --- FIM ACIDENTES OFFLINE ---
+
+                    salvarNaNuvem();
+                }
+                jogoIniciado = true;
+                carregandoDados = false;
+            }
+
+            // Garantias de integridade (Arrays vazios etc...)
+            if (!jogo.estudos) jogo.estudos = [];
+            while (jogo.estudos.length < 4) {
+                jogo.estudos.push({ item: null, tempoTotal: 0, tempoRestante: 0, progresso: 0 });
+            }
+            if (!jogo.leitos) jogo.leitos = Array.from({ length: 4 }, (_, index) => ({ id: index, ocupado: null }));
+            if (!jogo.filaDeEspera) jogo.filaDeEspera = [];
+            if (!jogo.loadoutEnfermaria) jogo.loadoutEnfermaria = { 'bandagem': 'bandagem_comum', 'pocao': 'pocao_vida_p', 'ervas': 'ervas_comuns' };
+
+            tabelaMinerais.forEach(m => {
+                if (!jogo.alocacaoMina[m.id]) {
+                    jogo.alocacaoMina[m.id] = [null, null];
+                    if (jogo.bancoMinerios[m.id] === undefined) jogo.bancoMinerios[m.id] = 0;
+                    if (jogo.minerios[m.id] === undefined) jogo.minerios[m.id] = 0;
+                }
+            });
+        }
+    }
+    let saveIntervalId = null; // Variável para controlar o intervalo
+    export function iniciarSave() {
+        if (saveIntervalId) clearInterval(saveIntervalId);
+
+        saveIntervalId = setInterval(() => { 
+            // AQUI ESTÁ O SEGREDO: Passamos 'true' para ativar o modo lento/leve
+            salvarNaNuvem(true); 
+        }, 10000); 
+    }
+    export function resetar() { if (confirm("Resetar?")) { localStorage.removeItem('save-v15-refactor'); location.reload(); } }
+    // Se o jogador trocar de aba, o navegador pausa o loop.
+    // Quando voltar, precisamos resetar o relógio para não dar um salto no tempo.
+    document.addEventListener("visibilitychange", () => {
+        if (document.hidden) {
+            // Saiu da aba: O navegador vai pausar o loop sozinho, não precisamos fazer nada.
+            console.log("Aba minimizada/oculta. Entrando em hibernação...");
+        } else {
+            // Voltou para a aba!
+            const agora = Date.now();
+            const tempoOcioso = (agora - jogo.ultimaAtualizacao) / 1000;
+
+            // Se ficou fora por mais de 60 segundos, consideramos como "Offline"
+            if (tempoOcioso > 60) {
+                console.log(`💤 Retornou da hibernação após ${tempoOcioso.toFixed(1)}s. Simulando modo offline...`);
+                
+                // 1. Roda a simulação completa (Recursos + Acidentes Retroativos)
+                processarOffline(tempoOcioso);
+
+                // 2. IMPORTANTE: Atualizamos o relógio para AGORA.
+                // Isso impede que o loop principal (que vai rodar milissegundos depois)
+                // tente processar esse tempo de novo, o que duplicaria seus recursos.
+                jogo.ultimaAtualizacao = agora;
+            } else {
+                // Se foi uma saidinha rápida (menos de 1 min), deixa o loop normal resolver
+                console.log("Retorno rápido. O loop principal ajustará o tempo.");
+            }
+        }
+    });

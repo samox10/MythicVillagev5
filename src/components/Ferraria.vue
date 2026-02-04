@@ -1,12 +1,13 @@
 <script setup>
 import { ref, computed, reactive, onMounted, onUnmounted, watch} from 'vue';
-import { jogo, acoes, dadosItens, obterBuffRaca, mostrarAviso } from '../jogo.js';
+import { jogo, acoes, dadosItens, obterBuffRaca, mostrarAviso, salvarNaNuvem } from '../jogo.js';
 import { DB_PEDRAS } from '../dados.js'; // Importa a tabela de pedras
-import { corTier } from '../funcionarios.js';
+import { corTier, nomeProfissao } from '../funcionarios.js';
 import imgAprendiz from '../assets/icons/pedra-aprendiz.png';
 import imgArtesao from '../assets/icons/pedra-artesao.png';
 import imgGraomestre from '../assets/icons/pedra-graomestre.png';
 import imgResiduo from '../assets/icons/residuo.png';
+import { formatarTempo, formatarNumero } from '../utilidades.js';
 
 // Define a classe do background baseada no nível
 const classeBackgroundTier = computed(() => {
@@ -234,8 +235,8 @@ const realizarAprimoramento = () => {
         
         mostrarAviso(tipoAviso === 'erro' ? "QUEBROU!" : "FALHA", msg, tipoAviso);
     }
-
     qtdPoUsado.value = 0;
+    salvarNaNuvem();
 };
 
 // --- CÁLCULOS E LÓGICA ---
@@ -247,7 +248,6 @@ const toggleSlot = (index) => {
         slotFocado.value = index; // Abre o novo
     }
 };
-const formatarNumero = (n) => n ? Number(n).toLocaleString('pt-BR') : '0';
 const qtdModal = ref(1); // Variável simples para controlar o input
 
 const abrirForja = (item) => {
@@ -453,16 +453,29 @@ const aplicarSegurancaFerreiro = (aba, temFerreiro, categoria) => {
 
 // Calcula os buffs visuais baseado no ferreiro atual
 const statsFerreiro = computed(() => {
-    if (!ferreiroAtivo.value) return { tempo: 0, falha: 0, poderReal: 0 };
+    // 1. Caso não tenha ferreiro (Retornar o padrão '0')
+    if (!ferreiroAtivo.value) {
+        return { 
+            tempo: 0, 
+            falha: 0, 
+            poderReal: 0, 
+            poderFormatado: '0' // <--- Adicionado para não quebrar o HTML
+        };
+    }
 
     const base = ferreiroAtivo.value.poderEspecial || 0;
-    const buffRaca = obterBuffRaca(ferreiroAtivo.value); // % extra vinda do Lorde
+    const buffRaca = obterBuffRaca(ferreiroAtivo.value);
     const poderReal = base * (1 + (buffRaca / 100));
 
+    // 2. Retorno com os dados calculados
     return {
         poderReal: Math.floor(poderReal), 
-        tempo: Math.min(90, Math.floor(poderReal)), // % Redução Tempo (Max 90%)
-        falha: Math.min(100, Math.floor(poderReal)) // % Redução Falha
+        tempo: Math.min(90, Math.floor(poderReal)),
+        falha: Math.min(100, Math.floor(poderReal)),
+        
+        // <--- AQUI ESTÁ A CORREÇÃO:
+        // Como no ferreiro o número é inteiro (ex: 20%), usamos toString() ou toFixed(0)
+        poderFormatado: Math.floor(poderReal).toString() 
     };
 });
 
@@ -538,26 +551,6 @@ const getChanceSucesso = () => {
     return (100 - falhaFinal).toFixed(1);
 };
 
-// Formatação mm:ss (e agora hh:mm) para a fila
-const formatarTempoFila = (s) => {
-    // Arredonda para cima para não mostrar "0s" quando ainda falta 0.5s
-    const final = Math.ceil(s);
-
-    if (final < 60) return `${final}s`;
-    
-    // Se for menos de 1 hora
-    if (final < 3600) {
-        const m = Math.floor(final / 60);
-        const rest = final % 60;
-        return `${m}m ${rest}s`;
-    }
-
-    // Se for 1 hora ou mais
-    const h = Math.floor(final / 3600);
-    const m = Math.floor((final % 3600) / 60);
-    return `${h}h${String(m).padStart(2, '0')}min`;
-};
-
 
 // Cores de Tier (mesma da Taverna)
 </script>
@@ -586,9 +579,10 @@ const formatarTempoFila = (s) => {
         
     </div>
     <div v-if="abaAtual === 'fabricacao'">
-    <div class="painel-controle-ferraria">
+    <div class="painel-controle-global">
         
-        <div v-if="ferreiroAtivo" class="card-funcionario ferreiro-ativo" :style="{ borderColor: corTier(ferreiroAtivo.tier) }">
+<!-- INICIO DO CARD FUNCIONARIO CONTRATADO-->
+            <div v-if="ferreiroAtivo" class="card-funcionario funcionario-ativo" :style="{ borderColor: corTier(ferreiroAtivo.tier) }">
                 
                 <div class="card-topo" :style="{ backgroundColor: corTier(ferreiroAtivo.tier) }">
                     <div class="topo-esquerda">
@@ -609,7 +603,7 @@ const formatarTempoFila = (s) => {
                     <div class="tabela-dados-func">
                         <div class="linha-dado">
                             <span class="dado-label">Profissão:</span>
-                            <span class="dado-valor">Ferreiro</span>
+                            <span class="dado-valor">{{ nomeProfissao(ferreiroAtivo) }}</span>
                         </div>
                         <div class="linha-dado">
                             <span class="dado-label">Raça:</span>
@@ -618,7 +612,7 @@ const formatarTempoFila = (s) => {
                         <div class="linha-dado">
                             <span class="dado-label">Sexo:</span>
                             <span class="dado-valor">{{ ferreiroAtivo.sexo === 'masculino' ? 'Masculino' : 'Feminino' }}</span>
-</div>
+                        </div>
                         <div class="linha-dado">
                             <span class="dado-label">Salário:</span>
                             <span class="dado-valor">
@@ -631,14 +625,16 @@ const formatarTempoFila = (s) => {
 
                 <div class="rodape-card">
                     <div class="info-produtividade">
-                        Maestria da forja +<span class="verde">{{ statsFerreiro.tempo }}%</span>
+                        Maestria na forja +<span class="verde">{{ statsFerreiro.poderFormatado }}%</span>
                     </div>
                     <div class="frase-efeito">
-                        "{{ ferreiroAtivo.frase || 'Forjando o futuro no fogo!' }}"
+                        "{{ ferreiroAtivo.frase || 'Curarei os Feridos!' }}"
                     </div>
                 </div>
             </div>
-            <div v-else class="card-funcionario ferreiro-ativo" style="border-color: #95a5a6; opacity: 0.9;">
+<!-- FIM DO CARD FUNCIONARIO CONTRATADO-->
+<!-- INICIO DO CARD FUNCIONARIO AJUDANTE-->
+            <div v-else class="card-funcionario funcionario-ativo" style="border-color: #95a5a6; opacity: 0.9;">
                 
                 <div class="card-topo" style="background-color: #95a5a6;">
                     <div class="topo-esquerda">
@@ -670,27 +666,28 @@ const formatarTempoFila = (s) => {
                     </div>
                 </div>
             </div>
+<!-- FIM DO CARD FUNCIONARIO AJUDANTE-->
             
 
         <div class="linha-divisoria"></div>
 
         <div class="lado-direito-filtros">
             <div class="botoes-categoria-wrapper">
-    <button 
-        class="btn-cat" 
-        :class="{ 'ativo': filtroCategoria === 'aventureiro' }"
-        @click="filtroCategoria = 'aventureiro'">
-        Aventureiros
-    </button>
-    <button 
-        class="btn-cat" 
-        :class="{ 'ativo': filtroCategoria === 'heroi', 'bloqueado': !ferreiroAtivo }"
-        :disabled="!ferreiroAtivo"
-        :title="!ferreiroAtivo ? 'Requer um Ferreiro contratado (O Ajudante não sabe forjar itens de Herói)' : ''"
-        @click="filtroCategoria = 'heroi'">
-        Heróis <span v-if="!ferreiroAtivo" style="margin-left:5px; font-size: 0.9em;">🔒</span>
-    </button>
-</div>
+                <button 
+                    class="btn-cat" 
+                    :class="{ 'ativo': filtroCategoria === 'aventureiro' }"
+                    @click="filtroCategoria = 'aventureiro'">
+                    Aventureiros
+                </button>
+                <button 
+                    class="btn-cat" 
+                    :class="{ 'ativo': filtroCategoria === 'heroi', 'bloqueado': !ferreiroAtivo }"
+                    :disabled="!ferreiroAtivo"
+                    :title="!ferreiroAtivo ? 'Requer um Ferreiro contratado (O Ajudante não sabe forjar itens de Herói)' : ''"
+                    @click="filtroCategoria = 'heroi'">
+                    Heróis <span v-if="!ferreiroAtivo" style="margin-left:5px; font-size: 0.9em;">🔒</span>
+                </button>
+            </div>
             
             <fieldset class="input-rpg">
                 <legend>Tipo de Item</legend>
@@ -737,7 +734,7 @@ const formatarTempoFila = (s) => {
 
             <div class="tooltip-header">
                 <span>{{ (dadosItens.find(i => i.id === jogo.craftando[slotFocado].item) || {}).nome }}</span>
-                <small>{{ formatarTempoFila(jogo.craftando[slotFocado].tempoRestante) }}</small>
+                <small>{{ formatarTempo(jogo.craftando[slotFocado].tempoRestante) }}</small>
             </div>
             
             <div class="barra-fundo-tooltip">
@@ -1239,16 +1236,6 @@ const formatarTempoFila = (s) => {
     transform: none;
     color: #ecf0f1;
 }
-
-/* --- PAINEL DE CONTROLE (Topo) --- */
-.painel-controle-ferraria {
-    display: flex; align-items: center; justify-content: space-between;
-    background: #ecf0f1; border: 1px solid #bdc3c7; border-radius: 8px;
-    margin: 4px 0; padding: 10px; gap: 15px; height: 180px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-}
-.ferreiro-ativo .card-mid { flex: 1; display: flex; align-items: center; padding: 5px 5px 5px 15px; background: #fff; }
-.linha-divisoria { width: 2px; height: 70%; background: #bdc3c7; opacity: 0.6; }
 /* Lista Container */
 .lista-receitas-container {
     background: #ecf0f1; border: 1px solid #bdc3c7; border-radius: 8px;
@@ -1477,7 +1464,6 @@ const formatarTempoFila = (s) => {
    RESPONSIVIDADE (MOBILE)
    ================================================== */
 @media(max-width: 768px) {
-    .painel-controle-ferraria { flex-direction: column; height: auto; }
     .lista-receitas-scroll {
         grid-template-columns: 1fr; /* No celular, volta para 1 coluna */
     }
@@ -1487,120 +1473,25 @@ const formatarTempoFila = (s) => {
     width: 20px; height: 20px;
     filter: drop-shadow(0 1px 2px rgba(0,0,0,0.3));
 }
-
-/* Efeito Zebrado (Opcional, deixa mais legível) */
-.linha-dado:nth-child(odd) { background-color: #ffffff; }
-/* Container Principal do Card */
-.ferreiro-ativo {
-    width: 100%;
-    max-width: 220px; /* Largura consideravelmente menor (Carta) */
-    margin: 0 auto;   /* Centraliza no espaço disponível */
-    background: #ffffff;
-    border-width: 2px; border-style: solid;
-    border-radius: 8px; overflow: hidden;
-    display: flex; flex-direction: column;
-    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
-}
-
 /* 1. O cabeçalho precisa ser relative para o ícone se alinhar a ele */
-.card-topo {
-    position: relative; /* IMPORTANTE: É a âncora do posicionamento */
-    display: flex;
-    align-items: center;
-    padding: 1px 5px;
-    padding-right: 35px; /* Garante que o texto do nome não fique embaixo do ícone */
-    color: #fff; 
-    font-weight: bold;
-    height: 32px; /* Altura fixa para o cabeçalho não pular */
-}
 
-/* 2. A bolinha branca (Menor e Absoluta) */
-.molde-icone-prof {
-    position: absolute; /* Solta o elemento para mover livremente */
-    top: 2px;           /* Cola no topo (ajuste se quiser mais p/ cima) */
-    right: 6px;         /* Cola na direita */
-    
-    background-color: #ffffff;
-    width: 24px;        /* Reduzi de 32px para 24px */
-    height: 24px;
-    border-radius: 50%;
-    
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    
-    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-    border: 2px solid rgba(255, 255, 255, 0.5);
-    z-index: 10;
-}
-
-/* 3. O desenho dentro da bolinha (Ajustado para o novo tamanho) */
-.img-prof-inner {
-    width: 19px;  /* Reduzi para caber na bolinha menor */
-    height: 19px;
-    object-fit: contain;
-}
-.topo-esquerda { display: flex; align-items: center; gap: 6px; }
-.tier-badge { background: rgba(0,0,0,0.3); padding: 1px 5px; border-radius: 4px; font-size: 0.9em; }
 .icon-prof-topo { width: 22px; height: 22px; filter: drop-shadow(0 1px 1px rgba(0,0,0,0.5)); }
 
-/* Meio (Avatar + Tabela) */
-.card-mid { flex: 1; display: flex; align-items: stretch; background: #fff; }
 
-.avatar-box {
-    width: 80px; /* AUMENTADO DE 75px PARA 100px */
-    display: flex; align-items: center; justify-content: center;
-    background: #f1f2f6; border-right: 1px solid #dfe4ea;
-}
-.avatar-func { 
-    width: 90px;  /* AUMENTADO DE 65px PARA 90px */
-    height: 90px; /* AUMENTADO DE 65px PARA 90px */
-    border-radius: 4px; border: 1px solid #ced6e0; background: #fff; 
-}
 
-.tabela-dados-func { flex: 1; display: flex; flex-direction: column; font-size: 0.75em; }
 
-.linha-dado {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 3px 6px; border-bottom: 1px solid #f1f2f6; color: #2f3542;
-}
-.linha-dado:nth-child(even) { background-color: #f8f9fa; }
 
-.dado-label { color: #747d8c; font-weight: 600; }
-.dado-valor { font-weight: bold; color: #2f3542; display: flex; align-items: center; gap: 3px; white-space: nowrap; }
-.capitalize { text-transform: capitalize; }
-.tiny-coin { width: 11px; height: 11px; }
+
+
 
 /* Rodapé Novo */
-.rodape-card {
-    background: #fff;
-    border-top: 1px solid #f1f2f6;
-    padding: 6px 4px;
-    text-align: center;
-    display: flex; flex-direction: column; gap: 2px;
-}
-.info-produtividade {
-    font-size: 0.75em; color: #2c3e50; font-weight: 600;
-}
-.verde { color: #27ae60; }
 
-.frase-efeito {
-    font-size: 0.7em; font-style: italic; color: #a4b0be;
-}
+
 /* --- ESTILO DO CARD VAZIO (SLOT) --- */
 
 
 .grayscale { filter: grayscale(100%) opacity(0.6); }
-/* Container que segura os filtros */
-.lado-direito-filtros { 
-    flex: 1; 
-    display: flex; 
-    flex-direction: column; 
-    gap: 1px;  /* Espaçamento entre as caixas */
-    padding: 5px; 
-    justify-content: center; 
-    align-items: center; /* CENTRALIZA TUDO HORIZONTALMENTE */
-}
+
 
 /* Título */
 .titulo-filtros { 
@@ -1663,16 +1554,6 @@ const formatarTempoFila = (s) => {
     margin-right: 5px;
     border-right: 1px solid #bdc3c7;
 }
-
-
-
-/* Container para organizar os 3 slots */
-
-/* --- ESTILO FORJA FRIA (Idea Nova) --- */
-
-/* A barra base (fina e discreta) */
-
-
 /* Container que centraliza os 3 quadrados */
 .fila-quadrados-container {
     display: flex;
@@ -1680,7 +1561,7 @@ const formatarTempoFila = (s) => {
     align-items: center;     /* Centraliza na Vertical (Cima/Baixo) - O CORRETOR DO PROBLEMA */
     gap: 40px; 
     margin-bottom: 20px; 
-    padding-top: 2px;
+    padding-top: 20px;
     position: relative;
     min-height: 20px; /* Garante altura suficiente para alinhar */
 }
