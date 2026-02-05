@@ -2,6 +2,7 @@ import { supabase } from './supabase.js';
 import { reactive, computed } from 'vue';
 import { tabelaMinerais, tabelaItens, tabelaCarcacas, catalogoMedicamentos, tiposFerimentos } from './dados.js';
 import { gerarFuncionario, processarFusao, calcularChancesFusao, ORDEM_TIERS, profissoesDeRisco } from './funcionarios.js';
+import { processarLogicaEnfermaria, simularEnfermariaOffline } from './logicaEnfermaria.js';
 
 // --- DADOS DE ESTUDO BIBLIOTECA---
 export const DADOS_ESTUDO = {
@@ -9,7 +10,8 @@ export const DADOS_ESTUDO = {
     'tabula_pedra':     { nome: 'Tábula de Pedra',  xp: 50, tempo: 300, cor: '#95a5a6' }, // 5 min
     'tomo_antigo':      { nome: 'Tomo Criptografado', xp: 200, tempo: 1200, cor: '#8e44ad' } // 20 min
 };
-export const TOTAL_LEITOS = 4;
+export const TOTAL_LEITOS = 4; // Total de leitos disponeiveis na enfermaria
+export const TEMPO_AFK_ENFERMARIA = 1800; // Tempo em segundos (30 min) para ativar auto dos leitos da enfermaria
 // --- CONFIGURAÇÃO DOS PRÉDIOS (NOVO) ---
 // Aqui você define as regras de cada prédio em um lugar só.
 // attrNivel: nome da variável dentro do 'jogo' que guarda o nível
@@ -129,18 +131,16 @@ tabelaCarcacas.forEach(i => itensIniciais[i.id] = 0);
 
 // --- ESTADO DO JOGO ---
 export const jogo = reactive({
+    carregando: true,
     equipamentos: [],
     poMistico: 0,
     tempoOciosidadeFila: 0,
     madeira: 100, carne: 100, ouro: 500, ciencia: 0, couro: 0,
     funcionarios: [],
-
     // Controle Diário
     contratacoesHoje: 0,
     contratacoesEliteHoje: 0,
     ultimoDiaContratacao: null,
-    
-    
     armazens: 0, custoArmazem: { madeira: 150, pedra: 50 },
     alocacaoMina: { ...alocacaoInicial }, // Guarda IDs: { pedra: ['id_joao', null], ... }
     bancoMinerios: { ...bancoInicial },   // Guarda frações de minério (ex: 0.45)
@@ -155,7 +155,6 @@ export const jogo = reactive({
         tempoRestante: 0, 
         progresso: 0 
     })),
-
     casas: 0, custoCasa: { madeira: 50, pedra: 10 },
     construindo: { tipo: null, tempoRestante: 0, tempoTotal: 0 },
     craftando: [], // Mudou de objeto {} para lista []
@@ -326,137 +325,125 @@ function finalizarCraft(index) {
     salvarNaNuvem();
 }
 function processarOffline(segundosOffline) {
-    if (segundosOffline <= 0) return;
+    // 1. TRAVA IMEDIATA
+    jogo.carregando = true;
 
-    // --- CONFIGURAÇÃO DA PENALIDADE ---
-    const penalidadeOffline = 1; // 0.8 = 80% de eficiência (20% de perda)
-    
-    // Calcula o tempo ÚTIL (com a penalidade)
-    let tempoParaGastar = segundosOffline * penalidadeOffline;
-    
-    console.log(`[OFFLINE] Tempo Real: ${segundosOffline.toFixed(1)}s | Tempo Útil (100%): ${tempoParaGastar.toFixed(1)}s`);
+    // Se o tempo for inválido, destrava e sai.
+    if (segundosOffline <= 0) {
+        jogo.carregando = false; 
+        return;
+    }
 
-    // --- 1. MINERAÇÃO (Também sofre a penalidade) ---
-    const minutosUteis = tempoParaGastar / 60;
-    const techPicareta = jogo.listaTechs ? jogo.listaTechs.find(t => t.id === 'picareta_diamante') : null;
-    const multiplicadorTech = (techPicareta && techPicareta.feito) ? 2 : 1;
+    console.log(`[HIBERNAÇÃO] Processando ${segundosOffline.toFixed(1)}s offline...`);
 
-    tabelaMinerais.forEach(m => {
-        const prodPorMinuto = calcularProducaoPorMinuto(m.id);
-        if (prodPorMinuto > 0) {
-            const totalGerado = prodPorMinuto * multiplicadorTech * minutosUteis;
-            jogo.minerios[m.id] = Math.min((jogo.minerios[m.id] || 0) + Math.floor(totalGerado), limites.recursos);
-        }
-    });
-
-    // --- 2. CÂMARA DE PROCESSAMENTO ---
-    // Proteção de 24h
-    // --- 2. CÂMARA DE PROCESSAMENTO (VERSÃO FINAL: LÊ DO DADOS.JS) ---
-    let tempoProcessamento = tempoParaGastar;
-    if (tempoProcessamento > 86400) tempoProcessamento = 86400; 
-
-    let itensProcessados = 0;
-
-    if (jogo.processamento && jogo.processamento.length > 0) {
+    // 2. BLOCO DE PROTEÇÃO (TRY / FINALLY)
+    // Tudo que estiver dentro do 'try' é monitorado. Se der erro, ele pula pro 'finally'.
+    try {
         
-        while (tempoProcessamento > 0 && jogo.processamento.length > 0) {
-            const slotAtual = jogo.processamento[0];
+        // --- CÓDIGO ORIGINAL DA LÓGICA OFFLINE ---
+        
+        const penalidadeOffline = 1; 
+        let tempoParaGastar = segundosOffline * penalidadeOffline;
 
-            // Se vazio, pula
-            if (!slotAtual || !slotAtual.item) {
-                jogo.processamento.shift();
-                continue;
+        // 1. MINERAÇÃO
+        const minutosUteis = tempoParaGastar / 60;
+        const techPicareta = jogo.listaTechs ? jogo.listaTechs.find(t => t.id === 'picareta_diamante') : null;
+        const multiplicadorTech = (techPicareta && techPicareta.feito) ? 2 : 1;
+
+        tabelaMinerais.forEach(m => {
+            const prodPorMinuto = calcularProducaoPorMinuto(m.id);
+            if (prodPorMinuto > 0) {
+                const totalGerado = prodPorMinuto * multiplicadorTech * minutosUteis;
+                jogo.minerios[m.id] = Math.min((jogo.minerios[m.id] || 0) + Math.floor(totalGerado), limites.recursos);
             }
+        });
 
-            // --- CORREÇÃO AQUI: Busca na tabelaCarcacas (dados.js) ---
-            const dadosItem = tabelaCarcacas.find(c => c.id === slotAtual.item);
+        // 2. CÂMARA DE PROCESSAMENTO
+        let tempoProcessamento = tempoParaGastar;
+        if (tempoProcessamento > 86400) tempoProcessamento = 86400; 
+        let itensProcessados = 0;
 
-            if (!dadosItem) {
-                // Se não achou na tabela oficial, aí sim remove
-                console.log(`Item desconhecido removido: ${slotAtual.item}`);
-                jogo.processamento.shift();
-                continue;
+        if (jogo.processamento && jogo.processamento.length > 0) {
+            while (tempoProcessamento > 0 && jogo.processamento.length > 0) {
+                const slotAtual = jogo.processamento[0];
+                if (!slotAtual || !slotAtual.item) {
+                    jogo.processamento.shift(); continue;
+                }
+                const dadosItem = tabelaCarcacas.find(c => c.id === slotAtual.item);
+                if (!dadosItem) {
+                    jogo.processamento.shift(); continue;
+                }
+                if (slotAtual.tempoRestante <= 0 && slotAtual.progresso === 0) {
+                     slotAtual.tempoRestante = dadosItem.tempo;
+                     slotAtual.tempoTotal = dadosItem.tempo;
+                }
+                let velocidade = 1;
+                const func = jogo.funcionarios.find(f => f.profissao === 'esfolador' && f.diasEmGreve === 0);
+                if (func) velocidade += func.bonus;
+                if (velocidade < 0.1) velocidade = 0.1;
+
+                const custoParaTerminar = slotAtual.tempoRestante / velocidade;
+
+                if (tempoProcessamento >= custoParaTerminar) {
+                    tempoProcessamento -= custoParaTerminar;
+                    if (dadosItem.recursos) {
+                        for (const [chave, qtd] of Object.entries(dadosItem.recursos)) {
+                            jogo.itens[chave] = (jogo.itens[chave] || 0) + qtd;
+                        }
+                    }
+                    jogo.processamento.shift();
+                    jogo.processamento.push({ item: null, tempoTotal: 0, tempoRestante: 0, progresso: 0 });
+                    itensProcessados++;
+                } else {
+                    const avanco = tempoProcessamento * velocidade;
+                    slotAtual.tempoRestante -= avanco;
+                    if (slotAtual.tempoTotal > 0) {
+                        slotAtual.progresso = 100 - ((slotAtual.tempoRestante / slotAtual.tempoTotal) * 100);
+                    }
+                    tempoProcessamento = 0;
+                }
             }
+        }
+        if (itensProcessados > 0) mostrarAviso("Relatório Offline", `Processados ${itensProcessados} itens.`);
 
-            // Se o slot não foi iniciado, pega o tempo da tabela
-            if (slotAtual.tempoRestante <= 0 && slotAtual.progresso === 0) {
-                 slotAtual.tempoRestante = dadosItem.tempo;
-                 slotAtual.tempoTotal = dadosItem.tempo;
-            }
-
-            // Calcula velocidade (Esfolador)
-            let velocidade = 1;
-            const func = jogo.funcionarios.find(f => f.profissao === 'esfolador' && f.diasEmGreve === 0);
-            if (func) velocidade += func.bonus;
-            if (velocidade < 0.1) velocidade = 0.1;
-
-            const custoParaTerminar = slotAtual.tempoRestante / velocidade;
-
-            if (tempoProcessamento >= custoParaTerminar) {
-                // --- TERMINOU O ITEM ---
-                tempoProcessamento -= custoParaTerminar;
-                
-                // --- ENTREGA RECURSOS (Lê de dadosItem.recursos) ---
-                if (dadosItem.recursos) {
-                    for (const [chave, qtd] of Object.entries(dadosItem.recursos)) {
-                        jogo.itens[chave] = (jogo.itens[chave] || 0) + qtd;
+        // 3. FERRARIA OFFLINE
+        if (jogo.craftando && jogo.craftando.length > 0) {
+            let tempoFerraria = tempoParaGastar; 
+            for (let i = 0; i < jogo.craftando.length; i++) {
+                let item = jogo.craftando[i];
+                if (tempoFerraria <= 0) break;
+                if (item.tempoRestante > 0) {
+                    if (tempoFerraria >= item.tempoRestante) {
+                        tempoFerraria -= item.tempoRestante;
+                        item.tempoRestante = 0; 
+                    } else {
+                        item.tempoRestante -= tempoFerraria;
+                        tempoFerraria = 0; 
                     }
                 }
-
-                // Remove da fila e repõe slot vazio no final
-                jogo.processamento.shift();
-                jogo.processamento.push({ item: null, tempoTotal: 0, tempoRestante: 0, progresso: 0 });
-                itensProcessados++;
-
-            } else {
-                // --- NÃO TERMINOU ---
-                const avanco = tempoProcessamento * velocidade;
-                slotAtual.tempoRestante -= avanco;
-                
-                if (slotAtual.tempoTotal > 0) {
-                    slotAtual.progresso = 100 - ((slotAtual.tempoRestante / slotAtual.tempoTotal) * 100);
-                }
-                tempoProcessamento = 0;
             }
         }
-    }
-    
-    if (itensProcessados > 0) {
-        console.log(`[OFFLINE] Processou ${itensProcessados} itens da Tabela de Carcaças.`);
-        mostrarAviso("Relatório Offline", `Sua equipe processou ${itensProcessados} carcaças enquanto você estava fora.`);
-    }
-    // --- INÍCIO DO CÓDIGO FERRARIA OFFLINE ---
-    // Verifica se existe fila de craft na ferraria
-    if (jogo.craftando && jogo.craftando.length > 0) {
-        // Cria uma cópia do tempo offline para gastar na fila da ferraria
-        let tempoFerraria = tempoOffline; 
-        // COMANDO DE CONSOLE: Mostra quanto tempo tem pra gastar
-        console.log(`%c[OFFLINE] Tempo disponível para Ferraria: ${tempoFerraria.toFixed(1)}s`, "color: cyan; font-weight: bold");
 
-        // Passa item por item da fila
-        for (let i = 0; i < jogo.craftando.length; i++) {
-            let item = jogo.craftando[i];
-            
-            // Se o tempo acabou, para o loop
-            if (tempoFerraria <= 0) break;
+        // --- CORREÇÃO AQUI: ENFERMARIA OFFLINE ---
+        // Usamos a variável 'segundosOffline' que vem do argumento da função.
+        // Antes estava 'segundosDisponiveis' (que não existia e travava o jogo).
+        simularEnfermariaOffline(segundosOffline); 
 
-            // Só desconta se o item ainda precisa de tempo
-            if (item.tempoRestante > 0) {
-                if (tempoFerraria >= item.tempoRestante) {
-                    // Caso 1: Ficou offline tempo suficiente para terminar este item
-                    tempoFerraria -= item.tempoRestante; // Gasta o tempo usado
-                    item.tempoRestante = 0; // Marca item como pronto (o jogo entrega ao abrir)
-                } else {
-                    // Caso 2: O tempo offline só adianta parte do item
-                    item.tempoRestante -= tempoFerraria;
-                    tempoFerraria = 0; // Zerou o tempo offline disponível
-                }
-                // COMANDO DE CONSOLE: Mostra o progresso individual
-                console.log(`[OFFLINE] 🔨 Item: ${item.item} | Avançou: ${tempoGasto.toFixed(1)}s | Falta: ${item.tempoRestante.toFixed(1)}s`);
-            }
-        }
+        // Salva tudo
+        salvarNaNuvem();
+
+    } catch (erro) {
+        // Se der qualquer erro no meio do caminho, ele cai aqui
+        console.error("🚨 ERRO CRÍTICO NA HIBERNAÇÃO:", erro);
+        mostrarAviso("Erro de Cálculo", "Houve um erro ao calcular o tempo offline. O jogo continuará normalmente.");
+    } finally {
+        // 3. DESTRAVA (SEMPRE EXECUTA)
+        // O bloco 'finally' roda aconteça o que acontecer (sucesso ou erro).
+        setTimeout(() => {
+            jogo.carregando = false;
+            console.log("🔓 Travas liberadas.");
+        }, 1500);
     }
-    // --- FIM DO CÓDIGO FERRARIA OFFLINE ---
 }
 // --- NOVA FUNÇÃO DE BUFF RACIAL DO PREFEITO ---
 export function obterBuffRaca(func) {
@@ -497,143 +484,6 @@ function calcularProducaoTotal(profissao) {
     
     return producaoTotal;
 }
-// --- LÓGICA DE AUTOMAÇÃO DA ENFERMARIA ---
-function processarLogicaEnfermaria(deltaSegundos) {
-    // 1. Processar Cura nos Leitos (Tic Tac do tempo)
-    jogo.leitos.forEach(leito => {
-        if (leito.ocupado) {
-            leito.ocupado.tempoAtual += deltaSegundos;
-            
-            // QUANDO O TEMPO ACABA:
-            if (leito.ocupado.tempoAtual >= leito.ocupado.tempoTotal) {
-                
-                // --- NOVO CÓDIGO DE ALTA MÉDICA ---
-                // Verifica se esse paciente é um funcionário nosso
-                if (leito.ocupado.funcionarioId) {
-                    const funcionario = jogo.funcionarios.find(f => f.id === leito.ocupado.funcionarioId);
-                    if (funcionario) {
-                        funcionario.status = null; // Limpa o status 'doente'
-                        // Opcional: Console para você ver acontecendo
-                        console.log(`🏥 ALTA: ${funcionario.nome} está curado e voltou ao trabalho!`);
-                    }
-                }
-                // ----------------------------------
-
-                // Curou! Libera o leito (Código original)
-                leito.ocupado = null;
-            }
-        }
-    });
-
-    // 2. Verificar se tem leitos livres
-    const leitosLivres = jogo.leitos.filter(l => !l.ocupado);
-    
-    // LÓGICA DOS 30 MINUTOS (1800 segundos)
-    if (leitosLivres.length === jogo.leitos.length && jogo.filaDeEspera.length > 0) {
-        // Se todos os leitos estão vazios E tem gente na fila
-        jogo.tempoSemPaciente += deltaSegundos;
-        
-        // Se passou de 30 minutos ocioso, força o automático
-        if (jogo.tempoSemPaciente >= 1800 && !jogo.modoAutomaticoEnfermaria) {
-            jogo.modoAutomaticoEnfermaria = true;
-            mostrarAviso("Automação Ativada", "A enfermaria ficou ociosa por 30min e ativou o modo automático.", "aviso");
-        }
-    } else {
-        // Se tem alguém tratando ou fila vazia, reseta o timer
-        jogo.tempoSemPaciente = 0;
-    }
-
-    // 3. O Grande Loop do Modo Automático
-    if (jogo.modoAutomaticoEnfermaria && leitosLivres.length > 0 && jogo.filaDeEspera.length > 0) {
-        
-        // Pega o enfermeiro (para calcular poder)
-        const enfermeiro = jogo.funcionarios.find(f => f.profissao === 'enfermeiro' && f.diasEmGreve === 0);
-        
-        // Tenta encaixar pacientes nos leitos livres
-        leitosLivres.forEach(leito => {
-            if (jogo.filaDeEspera.length === 0) return;
-
-            // Varre a fila procurando alguém que possamos pagar o tratamento
-            let pacienteIndex = -1;
-            let itemUsado = null;
-            let dadosDoenca = null;
-
-            // Loop de busca na fila (para pular quem não temos remédio)
-            // Loop de busca na fila (para pular quem não temos remédio)
-            for (let i = 0; i < jogo.filaDeEspera.length; i++) {
-                const p = jogo.filaDeEspera[i];
-                dadosDoenca = tiposFerimentos[p.doenca || 'corte_leve'];
-                
-                // --- CORREÇÃO DE SEGURANÇA (NOVO) ---
-                // Se a doença não existir no banco de dados, removemos o paciente bugado
-                if (!dadosDoenca) {
-                    console.log("Paciente removido por erro na doença:", p.doenca);
-                    jogo.filaDeEspera.splice(i, 1); // Remove da lista
-                    i--; // Ajusta o índice para não pular o próximo
-                    continue; // Vai para o próximo loop
-                }
-                // ------------------------------------
-
-                // Qual item está configurado no loadout?
-                const idItemConfig = jogo.loadoutEnfermaria[dadosDoenca.reqCategoria];
-                const itemDados = catalogoMedicamentos.find(it => it.id === idItemConfig);
-                
-                // Tem estoque?
-                if (itemDados && (jogo.itens[itemDados.id] || 0) > 0) {
-                    pacienteIndex = i;
-                    itemUsado = itemDados;
-                    break; // Achou um tratável!
-                }
-            }
-
-            // Se achou alguém tratável
-            if (pacienteIndex !== -1 && itemUsado) {
-                const paciente = jogo.filaDeEspera[pacienteIndex];
-                
-                // Consome item
-                jogo.itens[itemUsado.id]--;
-
-                // Calcula tempo com PENALIDADE de 10% (1.10)
-                let tempoFinal = dadosDoenca.tempoBase / itemUsado.fatorCura;
-                
-                if (enfermeiro) {
-                    // Lógica Nova: Usa MEDICINA (poderEspecial) como % de redução
-                    const buffPct = obterBuffRaca(enfermeiro); 
-                    const fatorRaca = 1 + (buffPct / 100);
-                    
-                    // Ex: Medicina 20 * 1.1 (Buff) = 22% de redução
-                    const medicinaTotal = (enfermeiro.poderEspecial || 0) * fatorRaca;
-                    
-                    // Limite de segurança de 90% pra não zerar o tempo
-                    const porcentagemReducao = Math.min(90, medicinaTotal);
-                    
-                    // Aplica a redução (Ex: Tempo * (1 - 0.22))
-                    tempoFinal = tempoFinal * (1 - (porcentagemReducao / 100));
-                }
-
-                // APLICA A PENALIDADE DO MODO AUTO
-                tempoFinal = tempoFinal * 1.50; 
-
-                // Prepara objeto pro leito
-                const pacienteNoLeito = { ...paciente };
-                pacienteNoLeito.tempoTotal = tempoFinal;
-                pacienteNoLeito.tempoAtual = 0;
-
-                // Ocupa o leito
-                leito.ocupado = pacienteNoLeito;
-
-                // Remove da fila
-                jogo.filaDeEspera.splice(pacienteIndex, 1);
-            } else {
-                // Se rodou a fila toda e não achou ninguem com remédio, 
-                // PAUSA O AUTOMATICO para não ficar processando à toa
-                jogo.modoAutomaticoEnfermaria = false;
-                mostrarAviso("Sem Estoque", "Modo Automático pausado: Faltam medicamentos para os feridos da fila.");
-            }
-        });
-    }
-}
-
 // --- AÇÕES ---
 export const acoes = {
     // Função auxiliar para iniciar qualquer construção
@@ -1207,10 +1057,23 @@ const verificarAcidentesDeTrabalho = () => {
     // 3. Filtra Candidatos (Define quem pode sofrer acidente)
     let candidatos = jogo.funcionarios.filter(f => {
         const prof = (f.profissao || '').toLowerCase();
-        // profissoesDeRisco vem do import lá em cima
-        return profissoesDeRisco.includes(prof) &&
-               f.status !== 'doente' && 
-               f.diasEmGreve === 0;
+        
+        // Filtros Básicos (Risco, Saúde e Greve)
+        const ehRisco = profissoesDeRisco.includes(prof);
+        const estaSaudavel = f.status !== 'doente';
+        const naoGreve = f.diasEmGreve === 0;
+
+        if (!ehRisco || !estaSaudavel || !naoGreve) return false;
+
+        // --- TRAVA NOVA: MINERADOR SÓ SE MACHUCA SE ESTIVER ALOCADO ---
+        if (prof === 'minerador') {
+            // Verifica se o ID dele está em algum slot da mina
+            const estaTrabalhando = Object.values(jogo.alocacaoMina).some(slots => slots.includes(f.id));
+            if (!estaTrabalhando) return false; // Se não tá na mina, tá seguro em casa!
+        }
+        // -------------------------------------------------------------
+
+        return true;
     });
 
     const totalEligiveis = candidatos.length;
@@ -1275,7 +1138,6 @@ const verificarAcidentesDeTrabalho = () => {
         salvarNaNuvem();
     }
 };
-// --- NOVO LOOP COM DELTA TIME ---
 // --- NOVO LOOP INTELIGENTE ---
 export function iniciarLoop() {
     if (loopId) cancelAnimationFrame(loopId);
@@ -1436,9 +1298,11 @@ export function iniciarLoop() {
     export async function definirIdUsuario(novoId) {
         idUsuarioAtual = novoId;
         console.log("Usuário definido no sistema:", idUsuarioAtual);
-        // Assim que define o usuário, já tenta carregar o save dele
-        carregarDaNuvem();
-    } 
+        
+        // ADICIONE O 'await' AQUI! 
+        // Isso obriga o App.vue a esperar essa função terminar antes de soltar a tela.
+        await carregarDaNuvem(); 
+    }
     let timerSalvar = null;
 
     export async function salvarNaNuvem(modoLento = false) {
@@ -1503,6 +1367,7 @@ export function iniciarLoop() {
             // GARANTIA: Se por acaso 'leitos' não existir no save, cria do zero
             if (!jogo.leitos) jogo.leitos = [];
             // Força a próxima checagem para AGORA, ignorando o que estava salvo
+            // RESETAR O TEMPO DE ACIDENTES (ONLINE E OFFLINE)
             /*if (jogo.sistemaAcidentes) {
                 jogo.sistemaAcidentes.proximaChecagem = Date.now() + 5000; // 5 segundos após carregar
                 console.log("🛠️ Timer de acidentes resetado manualmente para testes.");
@@ -1727,7 +1592,14 @@ export function iniciarLoop() {
                     // Usamos a lista global profissoesDeRisco importada de funcionarios.js
                     const totalFuncionariosRisco = jogo.funcionarios.filter(f => {
                          const prof = (f.profissao || '').toLowerCase();
-                         return profissoesDeRisco.includes(prof);
+                         if (!profissoesDeRisco.includes(prof)) return false;
+
+                         // Se for minerador, só conta se estiver alocado
+                         if (prof === 'minerador') {
+                             const estaTrabalhando = Object.values(jogo.alocacaoMina).some(slots => slots.includes(f.id));
+                             if (!estaTrabalhando) return false;
+                         }
+                         return true;
                     }).length;
 
                     // 2. Busca a regra inicial para definir o LIMITE OFFLINE
@@ -1750,10 +1622,21 @@ export function iniciarLoop() {
                         // Verifica chance E se ainda não atingiu o teto de feridos offline
                         if (dado <= chanceBase && acidentesOcorridos < LIMITE_DINAMICO) {
                             
-                            // B. Filtra quem está SAUDÁVEL agora
+                            // B. Filtra quem está SAUDÁVEL e TRABALHANDO agora
                             const candidatos = jogo.funcionarios.filter(f => {
                                 const prof = (f.profissao || '').toLowerCase();
-                                return profissoesDeRisco.includes(prof) && f.status !== 'doente' && f.diasEmGreve === 0;
+                                
+                                // Validações padrão
+                                if (!profissoesDeRisco.includes(prof)) return false;
+                                if (f.status === 'doente' || f.diasEmGreve !== 0) return false;
+
+                                // Validação de Minerador (Alocado?)
+                                if (prof === 'minerador') {
+                                    const estaTrabalhando = Object.values(jogo.alocacaoMina).some(slots => slots.includes(f.id));
+                                    if (!estaTrabalhando) return false;
+                                }
+
+                                return true;
                             });
 
                             // Se tem alguém saudável para sofrer o acidente
@@ -1805,8 +1688,12 @@ export function iniciarLoop() {
                         mostrarAviso("Relatório de Segurança", `Enquanto você estava fora, ocorreram ${acidentesOcorridos} acidentes de trabalho.`, "aviso");
                     }
                     // --- FIM ACIDENTES OFFLINE ---
-
+                    simularEnfermariaOffline(segundosDisponiveis);
                     salvarNaNuvem();
+                    setTimeout(() => {
+                        jogo.carregando = false; // <--- AQUI A GENTE DESTRANCA TUDO
+                        console.log("🔓 Login processado e travas liberadas.");
+                    }, 1500);
                 }
                 jogoIniciado = true;
                 carregandoDados = false;

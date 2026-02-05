@@ -7,6 +7,7 @@ import { formatarTempo, formatarNumero } from '../utilidades.js';
 
 const abaAtual = ref('tratamento');
 const mostrarBotaoTopo = ref(false);
+
 // Controle do Modal de Troca (Menu de Seleção)
 const modalTrocaAberto = ref(false);
 const categoriaParaTrocar = ref(null);
@@ -173,7 +174,7 @@ const corBarra = (p) => {
 
 <template>
     <div class="mythic-container">
-        
+    <!--
         <div class="header-titulo-aba">
             <div class="titulo-nivel">
                 <h2>🔪 Enfermaria</h2>
@@ -194,7 +195,7 @@ const corBarra = (p) => {
                 BERÇARIO <span v-if="!enfermeiroAtivo" style="margin-left:5px; font-size: 0.9em;">🔒</span>
             </button>
         </div>
-
+    -->
         <div v-if="abaAtual === 'tratamento'">
             <div class="painel-auto-switch">
                 <div class="info-switch">

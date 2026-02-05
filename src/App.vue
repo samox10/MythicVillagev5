@@ -103,37 +103,37 @@ body {
     const sec = s % 60;
     return `${h > 0 ? h + 'h ' : ''}${m}m ${sec}s`;
   };
-  const carregando = ref(true); // Começa carregando
 
-  onMounted(async () => { // Adicione 'async' aqui
-    const idSalvo = localStorage.getItem('usuario_ativo_id');
-    
-    if (idSalvo) {
-        console.log("Login restaurado. Carregando dados...");
-        carregando.value = true; // Garante que a tela de load apareça
+  onMounted(async () => {
+      const idSalvo = localStorage.getItem('usuario_ativo_id');
+      
+      if (idSalvo) {
+          console.log("Login restaurado. Aguardando o jogo carregar...");
+          // Não precisa setar true, pois no jogo.js já nasce true.
+          
+          // O 'await' segura aqui até o jogo terminar tudo
+          await definirIdUsuario(idSalvo);
+          
+          usuarioLogado.value = true;
+      } else {
+          // Se não tem usuário salvo, destrava a tela pro cara fazer login
+          jogo.carregando = false; 
+      }
 
-        // O 'await' faz o site ESPERAR o download do save terminar
-        await definirIdUsuario(idSalvo);
-        
-        usuarioLogado.value = true;
-    }
-    
-    // Terminou tudo (ou não tinha login salvo), libera a tela
-    carregando.value = false;
-
-    iniciarLoop();
-    iniciarSave();
+      iniciarLoop();
+      iniciarSave();
   });
 </script>
 
 <template>
-  <div v-if="carregando" class="tela-loading">
-      <div class="loading-content">
-          <h1>🏰 Mythic Village</h1>
-          <p>Carregando sua vila...</p>
-          <div class="spinner"></div>
+  <div id="app">
+    <div v-if="jogo.carregando" class="tela-carregamento">
+      <div class="conteudo-carregamento">
+        <h1>Processando a Vila...</h1>
+        <p>Calculando mineração, enfermaria e eventos offline.</p>
+        <div class="spinner">⏳</div>
       </div>
-  </div>
+    </div>
   <div v-else>
   <Login v-if="!usuarioLogado" @aoLogar="aoLogar" />
   <div class="jogo">
@@ -257,6 +257,7 @@ body {
       </div>
     </div>
 
+  </div>
   </div>
   </div>
 </template>
@@ -532,5 +533,34 @@ body {
 
 .fade-slide-enter-active, .fade-slide-leave-active { transition: all 0.2s ease; }
 .fade-slide-enter-from, .fade-slide-leave-to { opacity: 0; transform: translateY(-5px) translateX(-50%); }
+.tela-carregamento {
+  position: fixed; /* Fixa na tela inteira */
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.95); /* Fundo preto quase sólido */
+  z-index: 9999; /* Fica em cima de TUDO */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  color: white;
+  text-align: center;
+}
 
+.conteudo-carregamento h1 {
+  color: #f1c40f; /* Cor dourada */
+  margin-bottom: 10px;
+}
+
+.spinner {
+  font-size: 40px;
+  animation: girar 2s infinite linear;
+  margin-top: 20px;
+}
+
+@keyframes girar {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
 </style>
