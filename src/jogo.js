@@ -10,7 +10,7 @@ export const DADOS_ESTUDO = {
     'tabula_pedra':     { nome: 'Tábula de Pedra',  xp: 50, tempo: 300, cor: '#95a5a6' }, // 5 min
     'tomo_antigo':      { nome: 'Tomo Criptografado', xp: 200, tempo: 1200, cor: '#8e44ad' } // 20 min
 };
-export const TOTAL_LEITOS = 4; // Total de leitos disponeiveis na enfermaria
+export const TOTAL_LEITOS = 5; // Total de leitos disponeiveis na enfermaria
 export const TEMPO_AFK_ENFERMARIA = 1800; // Tempo em segundos (30 min) para ativar auto dos leitos da enfermaria
 // --- CONFIGURAÇÃO DOS PRÉDIOS (NOVO) ---
 // Aqui você define as regras de cada prédio em um lugar só.
@@ -167,15 +167,15 @@ export const jogo = reactive({
     filaDeEspera: [],
     // Loadout também precisa ser global para o loop saber qual item usar
     loadoutEnfermaria: {
-        'bandagem': 'bandagem_comum',
-        'pocao': 'pocao_vida_p',
-        'ervas': 'ervas_comuns',
+        'plasma_selante': 'plasma_selante_I',
+        'soro_regenerador': 'soro_regenerador_I',
+        'solucao_esteril': 'solucao_esteril_I',
         // Adicione as outras categorias padrão para evitar erro se o jogo buscar
-        'talisma': 'talisma_cura', 
-        'talas': 'tala_madeira',   // (Se criar o item depois)
-        'pomadas': 'pomada_base',  // (Se criar o item depois)
-        'antidotos': 'antidoto_p', // (Se criar o item depois)
-        'tonicos': 'tonico_revigorante' // (Se criar o item depois)
+        'soro_psiquico': 'soro_psiquico_I', 
+        'resina_calcaria': 'resina_calcaria_I',   // (Se criar o item depois)
+        'derme_sintetica': 'derme_sintetica_I',  // (Se criar o item depois)
+        'neutralizador': 'neutralizador_I', // (Se criar o item depois)
+        'estimulante': 'estimulante_I' // (Se criar o item depois)
     },
     // SISTEMA DE ACIDENTES DE TRABALHO DAS PROFISSOES NÃO COMBATENTES
     sistemaAcidentes: {
@@ -967,21 +967,21 @@ export const acoes = {
     // --- TODOS OS MEDICAMENTOS (TIER 1 a 4) ---
         const itensMedicos = [
             // Bandagens
-            'bandagem_comum', 'bandagem_seda', 'bandagem_magica', 'bandagem_aetherium',
+            'plasma_selante_I', 'plasma_selante_II', 'plasma_selante_III', 'plasma_selante_IV',
             // Poções
-            'pocao_vida_p', 'pocao_vida_m', 'pocao_vida_g', 'elixir_vida',
+            'soro_regenerador_I', 'soro_regenerador_II', 'posoro_regenerador_III', 'soro_regenerador_IV',
             // Ervas
-            'ervas_comuns', 'cataplasma_musgo', 'raiz_mandragora', 'flor_luz',
+            'solucao_esteril_I', 'solucao_esteril_II', 'solucao_esteril_III', 'solucao_esteril_IV',
             // Talas
-            'tala_madeira', 'tala_ferro', 'tala_mithril', 'tala_runica',
+            'resina_calcaria_I', 'resina_calcaria_II', 'resina_calcaria_III', 'resina_calcaria_IV',
             // Pomadas
-            'pomada_base', 'pomada_aloe', 'unguento_gelo', 'balsamo_fenix',
+            'derme_sintetica_I', 'derme_sintetica_II', 'derme_sintetica_III', 'derme_sintetica_IV',
             // Antídotos
-            'antidoto_p', 'soro_ofidico', 'panaceia', 'lagrima_unicornio',
+            'neutralizador_I', 'neutralizador_II', 'neutralizador_III', 'neutralizador_IV',
             // Tônicos
-            'tonico_revigorante', 'bebida_energetica', 'extrato_adrenalina', 'nectar_deuses',
+            'estimulante_I', 'estimulante_II', 'estimulante_III', 'estimulante_IV',
             // Talismãs
-            'talisma_cura', 'amuleto_prata', 'totem_ouro', 'reliquia_sagrada'
+            'soro_psiquico_I', 'soro_psiquico_II', 'soro_psiquico_III', 'soro_psiquico_IV'
         ];
 
         // Adiciona 50 de cada
@@ -1368,10 +1368,10 @@ export function iniciarLoop() {
             if (!jogo.leitos) jogo.leitos = [];
             // Força a próxima checagem para AGORA, ignorando o que estava salvo
             // RESETAR O TEMPO DE ACIDENTES (ONLINE E OFFLINE)
-            /*if (jogo.sistemaAcidentes) {
-                jogo.sistemaAcidentes.proximaChecagem = Date.now() + 5000; // 5 segundos após carregar
+            if (jogo.sistemaAcidentes) {
+                jogo.sistemaAcidentes.proximaChecagem = Date.now() + 1000; // 5 segundos após carregar
                 console.log("🛠️ Timer de acidentes resetado manualmente para testes.");
-            }*/
+            }
 
             // 1. Se faltar cama, constrói
             while (jogo.leitos.length < TOTAL_LEITOS) {
@@ -1706,7 +1706,7 @@ export function iniciarLoop() {
             }
             if (!jogo.leitos) jogo.leitos = Array.from({ length: 4 }, (_, index) => ({ id: index, ocupado: null }));
             if (!jogo.filaDeEspera) jogo.filaDeEspera = [];
-            if (!jogo.loadoutEnfermaria) jogo.loadoutEnfermaria = { 'bandagem': 'bandagem_comum', 'pocao': 'pocao_vida_p', 'ervas': 'ervas_comuns' };
+            if (!jogo.loadoutEnfermaria) jogo.loadoutEnfermaria = { 'plasma_selante': 'plasma_selante_I', 'soro_regenerador': 'soro_regenerador_I', 'solucao_esteril': 'solucao_esteril_I' };
 
             tabelaMinerais.forEach(m => {
                 if (!jogo.alocacaoMina[m.id]) {

@@ -1,4 +1,4 @@
-import { jogo, obterBuffRaca, mostrarAviso } from './jogo.js';
+import { jogo, obterBuffRaca, mostrarAviso, salvarNaNuvem } from './jogo.js';
 import { tiposFerimentos, catalogoMedicamentos } from './dados.js';
 
 // Constante de tempo para ativar o automático (30 minutos)
@@ -22,6 +22,7 @@ export function processarLogicaEnfermaria(deltaSegundos) {
                 }
                 // Libera o leito
                 leito.ocupado = null;
+                salvarNaNuvem();
             }
         }
     });
@@ -94,10 +95,11 @@ export function processarLogicaEnfermaria(deltaSegundos) {
                     tempoFinal = tempoFinal * (1 - (porcentagemReducao / 100));
                 }
 
-                tempoFinal = tempoFinal * 1.50; // Penalidade Auto
+                tempoFinal = tempoFinal * 1.10; // Penalidade Auto
 
                 leito.ocupado = { ...paciente, tempoTotal: tempoFinal, tempoAtual: 0 };
                 jogo.filaDeEspera.splice(pacienteIndex, 1);
+                salvarNaNuvem();
             } else {
                 jogo.modoAutomaticoEnfermaria = false;
                 mostrarAviso("Sem Estoque", "Modo Automático pausado: Faltam medicamentos.");
@@ -225,5 +227,7 @@ export function simularEnfermariaOffline(segundosOffline) {
 
     if (pacientesCurados > 0) {
         mostrarAviso("Relatório Médico Offline", `A enfermaria processou ${pacientesCurados} pacientes.`);
+        salvarNaNuvem();
     }
+
 }

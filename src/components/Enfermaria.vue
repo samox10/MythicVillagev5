@@ -139,6 +139,7 @@ const alocarPaciente = (paciente, indexLeito) => {
 
     // Consome
     jogo.itens[itemUsado.id]--;
+    salvarNaNuvem();
 
     // Calcula Tempo (SEM PENALIDADE MANUAL)
     let tempoFinal = dadosDoenca.tempoBase / itemUsado.fatorCura;
@@ -165,16 +166,85 @@ const toggleAutomatico = () => {
     jogo.modoAutomaticoEnfermaria = !jogo.modoAutomaticoEnfermaria;
 };
 
-// Helper para cor da barra
-const corBarra = (p) => {
-    if (p.tipo === 'especial') return '#f1c40f'; // Amarelo (VIP)
-    return '#e74c3c'; // Vermelho (Tropa)
+// --- HELPER PARA NOME DE PROFISSÃO CORRETO (SEXO) ---
+const getNomeProfissaoCorreto = (paciente) => {
+    // 1. Tenta achar o funcionário vivo na lista global pelo ID
+    const funcionarioReal = jogo.funcionarios.find(f => f.id === paciente.funcionarioId);
+    
+    // 2. Se achar, usa a função do sistema que já trata o sexo (Enfermeiro/Enfermeira)
+    if (funcionarioReal) {
+        return nomeProfissao(funcionarioReal);
+    }
+    
+    // 3. Fallback: Se não achar (ex: demitido), usa o texto salvo
+    return paciente.profissao || 'Aldeão';
+};
+const getNomeImagem = (idOriginal) => {
+    if (!idOriginal) return 'padrao'; // Proteção contra nulos
+
+    const mapa = {
+        'gerente': 'administrador',
+        'prefeito': 'lorde',
+        'bancario': 'tesoureiro',
+        'medico': 'enfermeiro',
+        'cientista': 'academico'
+    };
+    
+    // Se o nome estiver no mapa, troca. Se não, usa o original.
+    return mapa[idOriginal] || idOriginal;
+};
+
+// Mantemos o helper de doença e o toggle do leito
+const getNomeDoenca = (idDoenca) => {
+    if (!idDoenca) return 'Desconhecido';
+    const info = tiposFerimentos[idDoenca];
+    return info ? info.nome : idDoenca;
+};
+// --- HELPER PARA COR DO LÍQUIDO (MAGITECH) ---
+const getCorLiquido = (idDoenca) => {
+    // 1. Descobre qual categoria de item cura essa doença (ex: 'plasma_selante_I')
+    const itemFull = tiposFerimentos[idDoenca]?.itemCura || '';
+
+    // 2. TRUQUE: Remove o sufixo de grau (_I, _II, _III, _IV) para pegar a base
+    // Ex: 'plasma_selante_IV' vira 'plasma_selante'
+    // Ex: 'neutralizar_II' vira 'neutralizar'
+    const categoriaBase = itemFull.replace(/_[IV]+$/, '');
+
+    // 3. Mapa de Cores por Categoria (Use o nome base aqui)
+    const paleta = {
+        // Sangue (Vermelho)
+        'plasma_selante':   'linear-gradient(to top, #c0392b, #e74c3c)', 
+        
+        // Regeneração (Verde)
+        'soro_regenerador': 'linear-gradient(to top, #00b894, #55efc4)', 
+        
+        // Infecção (Ciano/Turquesa)
+        'solucao_esteril':  'linear-gradient(to top, #16a085, #1abc9c)', 
+        
+        // Ossos (Cinza/Prateado)
+        'resina_calcaria':  'linear-gradient(to top, #7f8c8d, #bdc3c7)', 
+        
+        // Pele/Fogo (Laranja)
+        'derme_sintetica':  'linear-gradient(to top, #d35400, #e67e22)', 
+        
+        // Veneno (Roxo) - Adicionei as duas variações de nome pra garantir
+        'neutralizador':    'linear-gradient(to top, #8e44ad, #9b59b6)', 
+        
+        // Vigor (Amarelo)
+        'estimulante':      'linear-gradient(to top, #f39c12, #f1c40f)', 
+        
+        // Mente (Azul Profundo)
+        'soro_psiquico':    'linear-gradient(to top, #2c3e50, #3498db)', 
+    };
+
+    // Retorna a cor específica ou o Verde Padrão se não achar
+    return paleta[categoriaBase] || 'linear-gradient(to top, #00b894, #55efc4)';
 };
 </script>
 
 <template>
     <div class="mythic-container">
-    <!--
+    
         <div class="header-titulo-aba">
             <div class="titulo-nivel">
                 <h2>🔪 Enfermaria</h2>
@@ -192,15 +262,15 @@ const corBarra = (p) => {
                 @click="abaAtual = 'bercario'"
                 :disabled="!enfermeiroAtivo"
                 :title="!enfermeiroAtivo ? 'Requer um Enfermeiro contratado (O Ajudante não sabe aprimorar itens)' : ''">
-                BERÇARIO <span v-if="!enfermeiroAtivo" style="margin-left:5px; font-size: 0.9em;">🔒</span>
+                Síntese <span v-if="!enfermeiroAtivo" style="margin-left:5px; font-size: 0.9em;">🔒</span>
             </button>
         </div>
-    -->
+    
         <div v-if="abaAtual === 'tratamento'">
             <div class="painel-auto-switch">
                 <div class="info-switch">
                     <span class="titulo-auto">Modo Automático</span>
-                    <span class="sub-auto" v-if="jogo.modoAutomaticoEnfermaria">Penalidade: +50% tempo de cura</span>
+                    <span class="sub-auto" v-if="jogo.modoAutomaticoEnfermaria">Penalidade: +10% tempo de cura</span>
                     <span class="sub-auto" v-else>Inativo (Ativa após 30min ocioso)</span>
                 </div>
                 
@@ -353,65 +423,89 @@ const corBarra = (p) => {
                 </div>
 
             </div>
-            <div class="area-leitos">
-            <h3>🏥 Leitos de Recuperação ({{ leitos.filter(l => l.ocupado).length }} / {{ leitos.length }})</h3>
+            <div class="area-laboratorio">
+            <h3 class="titulo-tech">
+                <span class="tech-icon">⚗️</span> Câmaras de Cura
+            </h3>
             
-            <div class="grid-leitos">
-                <div v-for="(leito, index) in leitos" :key="index" class="box-leito">
+            <div class="grid-tanques">
+                <div v-for="(leito, index) in leitos" :key="index" class="tanque-container">
                     
-                    <div class="leito-numero">#{{ index + 1 }}</div>
+                    <div class="vidro-tanque">
+                        <div class="topo-tanque">UNIT-{{ index + 1 }}</div>
 
-                    <div v-if="leito.ocupado" class="modo-cura-magica">
-                        
-                        <div class="runa-rotativa"></div>
-
-                        <div class="avatar-wrapper">
-                             <img :src="leito.ocupado.icone" class="img-avatar-padrao">
+                        <div v-if="!leito.ocupado" class="tanque-vazio-state">
+                            <span class="piscante">INJETAR<br>COMPOSTO</span>
                         </div>
 
-                        <div class="aura-cura"></div>
-
-                        <div class="ui-cura">
-                            <span class="badge-qtd" v-if="leito.ocupado.qtd > 1">x{{ leito.ocupado.qtd }}</span>
-                            
-                            <div class="barra-vida-magic">
-                                <div class="fill-magic" 
-                                     :style="{ width: (leito.ocupado.tempoAtual / leito.ocupado.tempoTotal * 100) + '%' }">
-                                </div>
+                        <div v-else class="tanque-ocupado-state">
+                            <div class="liquido-cura" 
+                            :style="{ 
+                                height: (leito.ocupado.tempoAtual / leito.ocupado.tempoTotal * 100) + '%',
+                                background: getCorLiquido(leito.ocupado.doenca)
+                            }">
+                                 <div class="bolha b1"></div><div class="bolha b2"></div>
                             </div>
-                            <span class="timer-texto">{{ formatarTempo(leito.ocupado.tempoTotal - leito.ocupado.tempoAtual) }}</span>
-                        </div>
 
+                            <div class="paciente-suspenso">
+                                <img :src="`/assets/ui/i_${getNomeImagem(leito.ocupado.profissao)}.png`" class="img-alquimica">
+                            </div>
+
+                            <div class="painel-digital-vidro">
+                                <span class="nome-digital">{{ leito.ocupado.nome }}</span>
+                                <span class="aviso-perigo">{{ getNomeDoenca(leito.ocupado.doenca) }}</span>
+                                <span class="timer-digital">{{ formatarTempo(leito.ocupado.tempoTotal - leito.ocupado.tempoAtual) }}</span>
+                            </div>
+                        </div>
                     </div>
+                    
+                    <div class="base-tanque"></div>
                 </div>
             </div>
         </div>
 
-        <div class="area-fila">
-            <h3>📋 Triagem (Clique para internar)</h3>
-            
-            <div class="lista-cards-fila">
+        <div class="area-hologramas">
+            <h3 class="titulo-tech">
+                <span class="tech-icon">💠</span> Lista de Feridos
+            </h3>
+
+            <div v-if="filaDeEspera.length === 0" class="aviso-tech">
+                SISTEMA OCIOSO. NENHUMA ENTRADA.
+            </div>
+
+            <div class="grid-tablets">
                 <div v-for="paciente in filaDeEspera" :key="paciente.id" 
-                     class="card-fila" 
+                     class="tablet-runico"
                      @click="alocarPaciente(paciente, leitos.findIndex(l => !l.ocupado))">
                     
-                    <div class="card-fila-esquerda">
-                        <img :src="paciente.icone" class="img-fila-icone">
-                        
-                        <div class="dados-fila">
-                            <span class="nome-fila">{{ paciente.nome }}</span>
-                            <span class="badge-qtd" :class="paciente.tipo">x{{ paciente.qtd }}</span>
+                    <div class="tablet-header">
+                        <div class="moldura-img-tech">
+                            <img :src="`/assets/ui/i_${getNomeImagem(paciente.profissao)}.png`" class="img-tech-mini">
+                        </div>
+                        <div class="tablet-id">
+                            <span class="nome-tech">{{ paciente.nome }}</span>
+                            <span class="classe-tech">{{ getNomeProfissaoCorreto(paciente) }}</span>
                         </div>
                     </div>
-                    
-                    <div class="card-fila-direita">
-                        <span class="tempo-estimado">⏱️ {{ formatarTempo(paciente.tempoTotal) }}</span>
-                        <small>Toque para curar</small>
-                    </div>
-                </div>
 
-                <div v-if="filaDeEspera.length === 0" class="aviso-sem-feridos">
-                    Nenhum ferido na fila. Bom trabalho!
+                    <div class="tablet-body">
+                        <div class="linha-dado">
+                            <span class="label-tech">STATUS:</span>
+                            <span class="valor-tech alerta">{{ getNomeDoenca(paciente.doenca) }}</span>
+                        </div>
+                        <div class="linha-dado">
+                            <span class="label-tech">ESTIMATIVA:</span>
+                            <span class="valor-tech">{{ formatarTempo(paciente.tempoTotal) }}</span>
+                        </div>
+                    </div>
+
+                    <div class="tablet-footer">
+                        <div class="botao-iniciar-protocolo">
+                            INICIAR TRATAMENTO
+                        </div>
+                    </div>
+
+                    <div class="scan-line"></div>
                 </div>
             </div>
         </div>
@@ -479,104 +573,271 @@ const corBarra = (p) => {
     border: 4px solid #7f8c8d; /* Paredes de pedra */
 }
 
-/* O BOX DA CAMA INDIVIDUAL */
-.box-leito {
-    position: relative;
-    background-image: url('/assets/ui/cama_vazia.png');
-    background-size: cover;
-    background-position: center;
-    height: 140px;
-    border-radius: 8px;
-    border: 2px solid #57606f;
-    box-shadow: inset 0 0 15px #000; /* Sombra interna para profundidade */
-    overflow: hidden;
+/* BOX DO ALTAR (LEITO) */
+/* === ESTILOS GERAIS === */
+.titulo-secao {
+    color: #2c3e50;
+    border-bottom: 3px solid #dfe6e9;
+    padding-bottom: 5px;
+    margin-bottom: 15px;
+    font-size: 1.1em;
+    text-transform: uppercase;
+    letter-spacing: 1px;
 }
+
+/* === ALTARES DE CURA (GRID) === */
+.grid-altares {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 15px;
+    margin-bottom: 30px;
+}
+
+/* O CARTÃO DO ALTAR */
+.altar-container {
+    background: #fdfdfd;
+    border-radius: 12px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+    border: 1px solid #dcdde1;
+    overflow: hidden;
+    display: flex; flex-direction: column;
+    transition: transform 0.2s, box-shadow 0.2s;
+    position: relative;
+    cursor: pointer;
+}
+.altar-container:hover { transform: translateY(-3px); box-shadow: 0 8px 15px rgba(0,0,0,0.1); }
+.altar-container.ocupado { border: 1px solid #a29bfe; background: #f8f9fe; }
+
+/* Cabeçalho do Altar */
+.altar-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 10px; background: rgba(0,0,0,0.03);
+    font-size: 0.75em; font-weight: bold;
+}
+.status-indicator { color: #6c5ce7; }
+.status-indicator.livre { color: #27ae60; }
+
+/* Área do Avatar (Palco) */
+.altar-palco {
+    height: 100px;
+    display: flex; justify-content: center; align-items: center;
+    position: relative;
+    background: radial-gradient(circle, rgba(162,155,254,0.1) 0%, rgba(255,255,255,0) 70%);
+}
+
+.img-paciente-altar {
+    width: 60px; height: 60px; z-index: 2;
+    filter: drop-shadow(0 5px 5px rgba(0,0,0,0.2));
+}
+
+/* Círculo Mágico (Animação) */
+.circulo-magico {
+    position: absolute; width: 80px; height: 80px;
+    border: 2px dashed #a29bfe; border-radius: 50%;
+    animation: spin 10s linear infinite; opacity: 0.5; z-index: 1;
+}
+@keyframes spin { 100% { transform: rotate(360deg); } }
+
+/* Ícone de Vazio */
+.icone-vazio { font-size: 2em; opacity: 0.3; filter: grayscale(1); }
+
+/* Painel de Info (Base) */
+.altar-painel-info {
+    padding: 10px;
+    background: #fff;
+    border-top: 1px solid #f1f2f6;
+    display: flex; flex-direction: column; gap: 6px;
+}
+.nome-destaque { font-weight: 800; font-size: 0.85em; color: #2d3436; text-align: center; display: block;}
+.doenca-destaque { font-size: 0.7em; color: #e17055; text-align: center; display: block; font-weight: bold; margin-bottom: 4px; }
+
+/* Barra de Cura */
+.wrapper-barra-cura { display: flex; flex-direction: column; gap: 2px; }
+.barra-fundo {
+    width: 100%; height: 8px; background: #dfe6e9; border-radius: 4px; overflow: hidden;
+}
+.barra-enchimento {
+    height: 100%; background: linear-gradient(90deg, #00b894, #55efc4);
+    transition: width 0.3s linear;
+}
+.tempo-restante { font-size: 0.65em; color: #636e72; text-align: right; font-weight: bold; }
+
+.altar-painel-vazio { padding: 15px; text-align: center; color: #b2bec3; font-size: 0.8em; font-style: italic; }
+
+
+/* === HALL DOS FERIDOS (LISTA RPG) === */
+.lista-cards-rpg {
+    display: flex; flex-direction: column; gap: 8px;
+}
+
+.ficha-paciente {
+    display: flex; align-items: center;
+    background: #fff;
+    border: 1px solid #dcdde1;
+    border-left: 4px solid #e17055; /* Indicador de urgência */
+    border-radius: 6px;
+    padding: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.ficha-paciente:hover {
+    background: #fff5f3;
+    transform: translateX(5px);
+    border-color: #fab1a0;
+}
+
+/* Avatar da Ficha */
+.ficha-avatar-box { position: relative; margin-right: 12px; }
+.ficha-avatar {
+    width: 45px; height: 45px; border-radius: 6px;
+    background: #f1f2f6; border: 1px solid #dfe6e9;
+}
+
+/* Dados da Ficha */
+.ficha-dados { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+.ficha-topo { display: flex; align-items: baseline; gap: 8px; }
+.ficha-nome { font-weight: bold; font-size: 0.95em; color: #2d3436; }
+.ficha-profissao { font-size: 0.75em; color: #636e72; text-transform: uppercase; background: #f1f2f6; padding: 1px 5px; border-radius: 4px; }
+.tag-doenca { color: #d63031; font-weight: bold; font-size: 0.8em; margin-top: 2px; display: block;}
+
+/* Ação (Direita) */
+.ficha-acao {
+    display: flex; flex-direction: column; align-items: flex-end; gap: 4px; min-width: 80px;
+}
+.ficha-tempo { font-size: 0.75em; font-weight: bold; color: #0984e3; }
+.btn-internar {
+    background: #00b894; color: white; border: none;
+    padding: 4px 10px; border-radius: 4px;
+    font-size: 0.7em; font-weight: 800; cursor: pointer;
+    text-transform: uppercase;
+}
+.btn-internar:hover { background: #00a884; }
+
+/* Empty State */
+.empty-state-fila {
+    text-align: center; padding: 30px;
+    background: #f1f2f6; border-radius: 8px; border: 2px dashed #b2bec3;
+    color: #636e72;
+}
+.emoji-paz { font-size: 2em; display: block; margin-bottom: 10px; }
+
 .leito-numero {
     position: absolute; top: 5px; left: 8px;
-    font-size: 0.7em; color: rgba(255,255,255,0.4);
+    font-size: 0.7em; color: rgba(255,255,255,0.3);
+    z-index: 5; font-weight: bold; text-transform: uppercase;
+}
+
+.leito-vazio-visual {
+    color: rgba(255,255,255,0.1);
+    font-weight: bold; text-transform: uppercase; letter-spacing: 2px;
+}
+
+/* --- BARRA DESLIZANTE (INTERAÇÃO) --- */
+.barra-info-paciente {
+    position: absolute;
+    bottom: 0; left: 0; width: 100%;
+    background: rgba(0, 0, 0, 0.85); /* Fundo escuro semi-transparente */
+    backdrop-filter: blur(4px);
+    color: #ecf0f1;
+    padding: 8px 10px;
+    border-top: 1px solid rgba(255,255,255,0.2);
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    z-index: 20;
+    
+    /* Altura inicial (fechado) */
+    height: 35px; 
+    overflow: hidden;
+}
+
+/* Quando a classe 'expandida' é ativada pelo clique */
+.barra-info-paciente.expandida {
+    height: 100px; /* Altura máxima ao abrir */
+    background: rgba(44, 62, 80, 0.95);
+    border-top: 2px solid #64ffda; /* Verde mágico */
+}
+
+.info-resumo {
+    display: flex; justify-content: space-between; align-items: center;
+    height: 20px;
+}
+.nome-paciente { font-weight: bold; font-size: 0.9em; color: #fff; }
+.seta-indicadora { font-size: 0.8em; color: #bdc3c7; }
+
+.info-detalhes-ocultos {
+    margin-top: 10px;
+    display: flex; flex-direction: column; gap: 4px;
+    font-size: 0.8em; opacity: 0;
+    transition: opacity 0.2s ease-in;
+}
+
+.barra-info-paciente.expandida .info-detalhes-ocultos {
+    opacity: 1; /* Mostra o texto ao abrir */
+}
+
+/* Timer flutuante no topo (mudou de lugar) */
+.ui-cura-topo {
+    position: absolute; top: 10px; right: 10px;
+    display: flex; flex-direction: column; align-items: flex-end;
     z-index: 10;
 }
 
-/* --- MODO CURA MÁGICA (ESTADO OCUPADO) --- */
-.modo-cura-magica {
-    width: 100%; height: 100%;
-    position: relative;
-    display: flex; justify-content: center; align-items: center;
-    background: rgba(0, 0, 0, 0.4); /* Escurece o fundo para destacar a magia */
-    backdrop-filter: blur(1px); /* Leve desfoque no fundo */
+/* --- ESTILOS DO HALL DOS FERIDOS (CARDS RPG) --- */
+.grid-cards-fila {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 10px;
+    margin-top: 10px;
 }
-/* 1. Runa Rotativa (Círculo Mágico) */
-.runa-rotativa {
-    position: absolute;
-    width: 90px; height: 90px;
-    border: 2px dashed rgba(100, 255, 218, 0.4); /* Verde Água Mágico */
+.card-header-rpg {
+    background: #f1f2f6;
+    padding: 8px;
+    display: flex; align-items: center; gap: 10px;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.avatar-fila-rpg {
+    width: 35px; height: 35px;
     border-radius: 50%;
-    animation: girar 8s linear infinite;
-    z-index: 1;
-}
-.runa-rotativa::after {
-    content: ''; position: absolute;
-    top: 10px; left: 10px; right: 10px; bottom: 10px;
-    border: 1px solid rgba(100, 255, 218, 0.6);
-    border-radius: 50%;
+    border: 2px solid #dfe6e9;
+    background: #fff;
 }
 
-/* 2. Avatar Flutuante */
-.avatar-wrapper {
-    z-index: 2;
-    animation: flutuar 3s ease-in-out infinite;
-}
-.img-avatar-padrao {
-    width: 60px; height: 60px; object-fit: contain;
-    filter: drop-shadow(0 0 10px rgba(100, 255, 218, 0.6)); /* Brilho em volta do boneco */
+.header-texto { display: flex; flex-direction: column; }
+.nome-rpg { font-weight: bold; font-size: 0.85em; color: #2c3e50; line-height: 1.1; }
+.prof-rpg { font-size: 0.7em; color: #7f8c8d; text-transform: uppercase; }
+
+.card-body-rpg {
+    padding: 8px;
+    display: flex; flex-direction: column; gap: 4px;
 }
 
-/* 3. Aura (Brilho Geral) */
-.aura-cura {
-    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-    background: radial-gradient(circle, rgba(100,255,218,0.2) 0%, rgba(0,0,0,0) 70%);
-    z-index: 2;
-    pointer-events: none;
+.info-linha {
+    display: flex; justify-content: space-between;
+    font-size: 0.75em;
+}
+.label { color: #95a5a6; }
+.valor-doenca { color: #c0392b; font-weight: bold; } /* Vermelho sangue */
+.valor-tempo { color: #2980b9; font-weight: bold; }
+
+.card-footer-rpg {
+    background: #27ae60;
+    color: white;
+    text-align: center;
+    font-size: 0.7em;
+    padding: 3px;
+    font-weight: bold;
+    text-transform: uppercase;
 }
 
-/* 4. Interface Unificada */
-.ui-cura {
-    position: absolute; bottom: 10px; width: 100%;
-    display: flex; flex-direction: column; align-items: center; gap: 3px;
-    z-index: 5;
-}
-.badge-qtd {
-    background: #2c3e50; color: #fff; font-size: 0.7em;
-    padding: 1px 6px; border-radius: 10px; font-weight: bold;
-    border: 1px solid #64ffda;
-}
-
-.barra-vida-magic {
-    width: 60%; height: 4px;
-    background: rgba(0,0,0,0.5);
-    border-radius: 2px;
-    overflow: hidden;
-}
-.fill-magic {
-    height: 100%;
-    background: #64ffda; /* Verde Neon Mágico */
-    box-shadow: 0 0 5px #64ffda;
-    transition: width 0.1s linear;
-}
-
-.timer-texto {
-    font-size: 0.6em; color: #64ffda; font-weight: bold;
-    text-shadow: 0 1px 2px #000;
-}
-
-/* Estilo da imagem na lista de espera */
-.img-fila-icone {
-    width: 40px;
-    height: 40px;
-    object-fit: contain;
+.aviso-sem-feridos {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 20px;
+    color: #7f8c8d;
+    font-style: italic;
     background: rgba(0,0,0,0.05);
-    border-radius: 4px;
-    padding: 2px;
+    border-radius: 8px;
 }
 /* --- ESTANTE DE MEDICAMENTOS --- */
 .grid-medicamentos {
@@ -864,5 +1125,146 @@ const corBarra = (p) => {
 @keyframes flutuar {
     0%, 100% { transform: translateY(0); }
     50% { transform: translateY(-6px); }
+}
+
+/* === ESTILO FINAL: MAGITECH === */
+
+.titulo-tech {
+    font-family: 'Courier New', monospace;
+    color: #2c3e50;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    border-bottom: 2px solid #bdc3c7;
+    padding-bottom: 10px;
+    margin-bottom: 30px;
+    display: flex; align-items: center; gap: 10px;
+}
+.tech-icon { font-size: 1.2em; filter: grayscale(1); }
+
+/* --- REUTILIZANDO OS TANQUES (CÓDIGO OTIMIZADO) --- */
+.grid-tanques {
+    display: flex; flex-wrap: wrap; justify-content: center; gap: 30px;
+    margin-bottom: 60px;
+}
+.tanque-container { display: flex; flex-direction: column; align-items: center; }
+
+.vidro-tanque {
+    width: 120px; height: 180px;
+    background: rgba(223, 230, 233, 0.4);
+    border: 2px solid #b2bec3;
+    border-radius: 50px 50px 10px 10px;
+    position: relative; overflow: hidden;
+    box-shadow: inset 0 0 15px rgba(0, 184, 148, 0.2);
+}
+
+.topo-tanque {
+    position: absolute; top: 5px; width: 100%; text-align: center;
+    font-size: 0.6em; font-family: monospace; z-index: 10; color: #636e72;
+}
+
+.liquido-cura {
+    position: absolute; bottom: 0; left: 0; width: 100%;
+    opacity: 0.7; transition: height 0.5s linear; z-index: 1;
+}
+.paciente-suspenso {
+    position: absolute; width: 100%; height: 100%;
+    display: flex; justify-content: center; align-items: center; z-index: 2;
+}
+.img-alquimica { width: 60px; filter: drop-shadow(0 0 5px white); animation: flutuar 3s infinite ease-in-out; }
+
+@keyframes flutuar { 0%, 100% {transform: translateY(0);} 50% {transform: translateY(-5px);} }
+
+.painel-digital-vidro {
+    position: absolute; bottom: 10px; width: 90%; left: 5%;
+    background: rgba(0,0,0,0.8); color: #55efc4;
+    padding: 5px; border-radius: 4px; text-align: center;
+    font-family: monospace; font-size: 0.7em; z-index: 5;
+    border: 1px solid #55efc4;
+}
+.nome-digital { display: block; color: white; font-weight: bold; margin-bottom: 2px; }
+.aviso-perigo { color: #ff7675; font-weight: bold; display: block;}
+.timer-digital { font-size: 1.1em; letter-spacing: 1px; }
+
+.tanque-vazio-state {
+    height: 100%; display: flex; align-items: center; justify-content: center;
+    font-family: monospace; color: #b2bec3; font-size: 0.8em;
+}
+.piscante { animation: piscar 1s infinite; }
+@keyframes piscar { 0%, 100% {opacity: 1;} 50% {opacity: 0.3;} }
+
+.base-tanque { width: 100px; height: 10px; background: #636e72; margin-top: -2px; border-radius: 0 0 10px 10px; }
+
+
+/* --- NOVA TRIAGEM: TABLETS RÚNICOS --- */
+.grid-tablets {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 15px;
+}
+
+.tablet-runico {
+    position: relative;
+    background: #fff; /* Fundo limpo */
+    border: 1px solid #bdc3c7;
+    border-left: 4px solid #00b894; /* Borda lateral tech */
+    border-radius: 4px;
+    padding: 10px;
+    cursor: pointer;
+    overflow: hidden;
+    transition: all 0.2s;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+}
+
+.tablet-runico:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 5px 15px rgba(0, 184, 148, 0.2);
+    border-color: #00b894;
+}
+
+/* Cabeçalho do Tablet */
+.tablet-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; border-bottom: 1px dashed #dfe6e9; padding-bottom: 5px; }
+
+.moldura-img-tech {
+    width: 40px; height: 40px;
+    border: 1px solid #bdc3c7; padding: 2px; border-radius: 4px;
+}
+.img-tech-mini { width: 100%; height: 100%; object-fit: contain; }
+
+.tablet-id { display: flex; flex-direction: column; }
+.nome-tech { font-weight: bold; color: #2d3436; font-size: 0.9em; font-family: sans-serif; }
+.classe-tech { font-size: 0.7em; color: #636e72; text-transform: uppercase; letter-spacing: 1px; }
+
+/* Corpo do Tablet */
+.tablet-body { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
+.linha-dado { display: flex; justify-content: space-between; font-size: 0.75em; font-family: monospace; }
+.label-tech { color: #b2bec3; }
+.valor-tech { font-weight: bold; color: #2d3436; }
+.valor-tech.alerta { color: #d63031; }
+
+/* Rodapé / Botão */
+.tablet-footer { text-align: center; }
+.botao-iniciar-protocolo {
+    background: #2d3436; color: #55efc4;
+    font-size: 0.7em; padding: 5px;
+    font-family: monospace; font-weight: bold;
+    border-radius: 2px; letter-spacing: 1px;
+    transition: background 0.2s;
+}
+.tablet-runico:hover .botao-iniciar-protocolo {
+    background: #00b894; color: white;
+}
+
+/* Efeito Scan Line (Decorativo) */
+.scan-line {
+    position: absolute; top: 0; left: 0; width: 100%; height: 2px;
+    background: rgba(0, 184, 148, 0.5);
+    opacity: 0; pointer-events: none;
+}
+.tablet-runico:hover .scan-line {
+    opacity: 1; animation: scan 1s linear infinite;
+}
+@keyframes scan { 0% {top: 0;} 100% {top: 100%;} }
+
+.aviso-tech {
+    font-family: monospace; text-align: center; padding: 20px;
+    color: #b2bec3; border: 1px dashed #b2bec3;
 }
 </style>
